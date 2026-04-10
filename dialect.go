@@ -16,6 +16,7 @@ import "go.xyrillian.de/oblast/internal"
 type Dialect interface {
 	// Placeholder returns the placeholder for the i-th query argument.
 	// Most dialects use "?", but e.g. PostgreSQL uses "$1", "$2" and so on.
+	// The argument numbers from 0 like a slice index.
 	Placeholder(i int) string
 
 	// QuoteIdentifier wraps the name of a column or table in quotes,

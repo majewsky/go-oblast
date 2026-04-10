@@ -20,7 +20,7 @@ type Dialect interface {
 // PostgresDialect is the dialect of PostgreSQL databases.
 type PostgresDialect struct{}
 
-func (PostgresDialect) Placeholder(i int) string           { return "$" + strconv.Itoa(i) }
+func (PostgresDialect) Placeholder(i int) string           { return "$" + strconv.Itoa(i+1) }
 func (PostgresDialect) QuoteIdentifier(name string) string { return `"` + name + `"` }
 func (PostgresDialect) UsesLastInsertID() bool             { return false }
 
