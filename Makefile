@@ -16,6 +16,7 @@ GO_COVERPKGS := $(shell go list ./... | tr '\n' , | sed 's/,$$//')
 GO_TESTPKGS := $(shell go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./...)
 
 build/cover.out: FORCE
+	@mkdir -p build
 	@printf "\e[1;36m>> go test\e[0m\n"
 	go test -shuffle=on -coverprofile=build/cover.out -covermode=count -coverpkg=$(GO_COVERPKGS) $(GO_TESTPKGS)
 build/cover.html: build/cover.out
