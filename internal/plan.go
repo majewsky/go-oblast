@@ -180,12 +180,14 @@ func (p Plan) buildInsertQueryIfPossible(dialect Dialect) PlannedQuery {
 	}
 
 	query := fmt.Sprintf(
-		`INSERT INTO %s (%s) VALUES (%s)%s`,
+		`INSERT INTO %s (%s) VALUES (%s)`,
 		dialect.QuoteIdentifier(p.TableName),
 		strings.Join(quotedColumnNames, ", "),
 		strings.Join(quotedPlaceholders, ", "),
-		dialect.InsertSuffixForAutoColumns(p.AutoColumnNames),
 	)
+	if len(p.AutoColumnNames) > 0 {
+		query += dialect.InsertSuffixForAutoColumns(p.AutoColumnNames)
+	}
 	return PlannedQuery{query, argumentIndexes}
 }
 
