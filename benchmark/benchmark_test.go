@@ -54,10 +54,10 @@ func BenchmarkSelect(b *testing.B) {
 		ID      int    `db:"id"`
 		Message string `db:"message"`
 	}
-	query := `SELECT * FROM entries WHERE id < ` + strconv.Itoa(selectedRecordCount)
+	query := `SELECT * FROM entries WHERE id < ` + strconv.Itoa(selectedRecordCount) //nolint:gosec
 
 	selectWithOblast := func(b *testing.B) {
-		records, err := oblast.Select[record](b.Context(), odb, query)
+		records, err := oblast.Select[record](odb, query)
 		if err != nil {
 			b.Error(err)
 		}

@@ -4,12 +4,11 @@
 package oblast
 
 import (
-	"context"
 	"fmt"
 	"reflect"
 )
 
-func Select[T any](ctx context.Context, db *DB, query string, args ...any) ([]T, error) {
+func Select[T any](db *DB, query string, args ...any) ([]T, error) {
 	// TODO: minimize function body to avoid binary size blowup from monomorphization
 	// TODO: catch error from rows.Close(), if any
 	// TODO: add context to errors
