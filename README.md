@@ -5,7 +5,9 @@ SPDX-License-Identifier: Apache-2.0
 
 # Oblast
 
-My attempt at an ORM library for Go. Inspired by [Gorp](https://pkg.go.dev/gopkg.in/gorp.v3), but without the bits that make Gorp slow.
+My attempt at a minimal ORM library for Go. Inspired by [Gorp](https://pkg.go.dev/gopkg.in/gorp.v3), but without the bits that make Gorp slow.
+
+You may think that the name refers to the type of administrative division that exists in several Slavic countries, but it's actually just an acronym for what this library does: **Ob**ject **L**oading **A**nd **St**oring.
 
 ## Unstructured notes
 
