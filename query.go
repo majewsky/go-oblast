@@ -4,8 +4,11 @@
 package oblast
 
 import (
+	"database/sql"
 	"fmt"
 	"reflect"
+
+	"go.xyrillian.de/oblast/internal"
 )
 
 func Select[T any](db *DB, query string, args ...any) ([]T, error) {
@@ -17,26 +20,11 @@ func Select[T any](db *DB, query string, args ...any) ([]T, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := db.Query(query, args...)
+	rows, indexes, err := db.startQuery(plan, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
-	columnNames, err := rows.Columns()
-	if err != nil {
-		return nil, err
-	}
-	indexes := make([][]int, len(columnNames))
-	for idx, columnName := range columnNames {
-		var ok bool
-		indexes[idx], ok = plan.IndexByColumnName[columnName]
-		if !ok {
-			var zero T
-			return nil, fmt.Errorf("result has column %q in position %d, but no field in %T has `db:%[1]q`",
-				columnName, idx, zero)
-		}
-	}
 
 	var result []T
 	slots := make([]any, len(indexes))
@@ -54,4 +42,37 @@ func Select[T any](db *DB, query string, args ...any) ([]T, error) {
 	}
 
 	return result, nil
+}
+
+func (db *DB) startQuery(plan internal.Plan, query string, args ...any) (rows *sql.Rows, indexes [][]int, err error) {
+	rows, err = db.Query(query, args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() {
+		if err != nil {
+			closeErr := rows.Close()
+			if closeErr != nil {
+				err = fmt.Errorf("%w (additional error during rows.Close: %s)", err, closeErr.Error())
+			}
+		}
+	}()
+
+	columnNames, err := rows.Columns()
+	if err != nil {
+		return nil, nil, err
+	}
+	indexes = make([][]int, len(columnNames))
+	for idx, columnName := range columnNames {
+		var ok bool
+		indexes[idx], ok = plan.IndexByColumnName[columnName]
+		if !ok {
+			return nil, nil, fmt.Errorf(
+				"result has column %q in position %d, but no field in record type has `db:%[1]q`",
+				columnName, idx,
+			)
+		}
+	}
+
+	return rows, indexes, nil
 }

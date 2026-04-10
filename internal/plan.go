@@ -46,9 +46,16 @@ var (
 
 // BuildPlan creates a new plan for the given struct type.
 func BuildPlan(t reflect.Type, dialect Dialect) (Plan, error) {
+	p, err := buildPlan(t, dialect)
+	if err != nil {
+		return Plan{}, fmt.Errorf("cannot use type %s.%s for queries: %w", t.PkgPath(), t.Name(), err)
+	}
+	return p, nil
+}
+
+func buildPlan(t reflect.Type, dialect Dialect) (Plan, error) {
 	if t.Kind() != reflect.Struct {
-		return Plan{}, fmt.Errorf("expected record type to be a struct, but got kind %s (full type: %s.%s)",
-			t.Kind(), t.PkgPath(), t.Name())
+		return Plan{}, fmt.Errorf("expected struct type, but got kind %s", t.Kind().String())
 	}
 
 	var p = Plan{
