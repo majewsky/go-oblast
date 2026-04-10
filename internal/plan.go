@@ -64,14 +64,16 @@ func buildPlan(t reflect.Type, dialect Dialect) (Plan, error) {
 
 	// discover addressable fields in this type,
 	// collect information from markers and tags
-	for _, index := range getAllAddressableFieldIndexes(t) {
-		field := t.FieldByIndex(index)
+	for _, field := range reflect.VisibleFields(t) {
 		tags := strings.Split(strings.TrimSpace(field.Tag.Get("db")), ",")
 
 		switch {
+		case field.PkgPath != "":
+			// ignore unexported fields (otherwise reflect.Value.Interface() on the field would panic)
+			continue
 		case field.Type == tableNameMarkerType:
 			// only consider this marker when directly on `t` itself, not within embedded fields
-			if len(index) == 1 {
+			if len(field.Index) == 1 {
 				if len(tags) > 1 {
 					return Plan{}, fmt.Errorf("invalid table name %q (may not contain commas)", field.Tag.Get("db"))
 				}
@@ -79,7 +81,7 @@ func buildPlan(t reflect.Type, dialect Dialect) (Plan, error) {
 			}
 		case field.Type == primaryKeyMarkerType:
 			// only consider this marker when directly on `t` itself, not within embedded fields
-			if len(index) == 1 {
+			if len(field.Index) == 1 {
 				p.PrimaryKeyColumnNames = tags
 			}
 		case field.Anonymous && field.Type.Kind() == reflect.Struct:
@@ -96,10 +98,10 @@ func buildPlan(t reflect.Type, dialect Dialect) (Plan, error) {
 			if otherIndex := p.IndexByColumnName[columnName]; otherIndex != nil {
 				return Plan{}, fmt.Errorf(
 					"duplicate tag `db:%q` on field index %v, but also on field index %v",
-					columnName, otherIndex, index,
+					columnName, otherIndex, field.Index,
 				)
 			}
-			p.IndexByColumnName[columnName] = index
+			p.IndexByColumnName[columnName] = field.Index
 			p.AllColumnNames = append(p.AllColumnNames, columnName)
 
 			for _, tag := range extraTags {
@@ -107,7 +109,7 @@ func buildPlan(t reflect.Type, dialect Dialect) (Plan, error) {
 				case "auto":
 					p.AutoColumnNames = append(p.AutoColumnNames, columnName)
 				default:
-					return Plan{}, fmt.Errorf("unknown tag `db:%q` on field index %v", ","+tag, index)
+					return Plan{}, fmt.Errorf("unknown tag `db:%q` on field index %v", ","+tag, field.Index)
 				}
 			}
 		}
@@ -135,24 +137,6 @@ func buildPlan(t reflect.Type, dialect Dialect) (Plan, error) {
 	p.Delete = p.buildDeleteQueryIfPossible(dialect)
 
 	return p, nil
-}
-
-// WARNING: Panics if t.Kind() != reflect.Struct.
-func getAllAddressableFieldIndexes(t reflect.Type) (result [][]int) {
-	for field := range t.Fields() {
-		// recurse into embedded fields
-		if field.Anonymous && field.Type.Kind() == reflect.Struct {
-			for _, subindex := range getAllAddressableFieldIndexes(field.Type) {
-				result = append(result, append(slices.Clone(field.Index), subindex...))
-			}
-		}
-
-		// only fields are addressable (otherwise reflect.Value.Interface() on the field would panic)
-		if field.PkgPath == "" {
-			result = append(result, field.Index)
-		}
-	}
-	return result
 }
 
 func (p Plan) getNonAutoColumnNames() []string {
