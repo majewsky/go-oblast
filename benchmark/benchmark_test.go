@@ -49,16 +49,19 @@ func BenchmarkSelect(b *testing.B) {
 	for _, selectedRecordCount := range []int{1, 10, 100, 1000} {
 		b.Run("N="+strconv.Itoa(selectedRecordCount), func(b *testing.B) {
 			// prepare the functions that will be benched
-			odb := oblast.NewDB(db, oblast.SqliteDialect())
-			gdb := gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
 			type record struct {
 				ID      int    `db:"id"`
 				Message string `db:"message"`
 			}
+			store, err := oblast.NewStore[record](oblast.SqliteDialect())
+			if err != nil {
+				b.Fatal(err)
+			}
+			gdb := gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
 			query := `SELECT * FROM entries WHERE id < ` + strconv.Itoa(selectedRecordCount) //nolint:gosec
 
 			selectWithOblast := func(b *testing.B) {
-				records, err := oblast.Select[record](odb, query)
+				records, err := store.Select(db, query)
 				if err != nil {
 					b.Error(err)
 				}

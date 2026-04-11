@@ -4,12 +4,11 @@
 package internal
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
 	"strings"
-
-	"go.xyrillian.de/oblast/info"
 )
 
 // Plan holds all information that we can derive from reflecting on a given type.
@@ -39,27 +38,30 @@ type PlannedQuery struct {
 	ArgumentIndexes [][]int
 }
 
-var (
-	tableNameMarkerType  = reflect.TypeFor[info.TableNameIs]()
-	primaryKeyMarkerType = reflect.TypeFor[info.PrimaryKeyIs]()
-)
+// PlanOpts holds additional arguments to BuildPlan().
+type PlanOpts struct {
+	TableName             string
+	PrimaryKeyColumnNames []string
+}
 
 // BuildPlan creates a new plan for the given struct type.
-func BuildPlan(t reflect.Type, dialect Dialect) (Plan, error) {
-	p, err := buildPlan(t, dialect)
+func BuildPlan(t reflect.Type, dialect Dialect, opts PlanOpts) (Plan, error) {
+	p, err := buildPlan(t, dialect, opts)
 	if err != nil {
 		return Plan{}, fmt.Errorf("cannot use type %s.%s for queries: %w", t.PkgPath(), t.Name(), err)
 	}
 	return p, nil
 }
 
-func buildPlan(t reflect.Type, dialect Dialect) (Plan, error) {
+func buildPlan(t reflect.Type, dialect Dialect, opts PlanOpts) (Plan, error) {
 	if t.Kind() != reflect.Struct {
 		return Plan{}, fmt.Errorf("expected struct type, but got kind %s", t.Kind().String())
 	}
 
 	var p = Plan{
-		IndexByColumnName: make(map[string][]int),
+		TableName:             opts.TableName,
+		PrimaryKeyColumnNames: opts.PrimaryKeyColumnNames,
+		IndexByColumnName:     make(map[string][]int),
 	}
 
 	// discover addressable fields in this type,
@@ -71,19 +73,6 @@ func buildPlan(t reflect.Type, dialect Dialect) (Plan, error) {
 		case field.PkgPath != "":
 			// ignore unexported fields (otherwise reflect.Value.Interface() on the field would panic)
 			continue
-		case field.Type == tableNameMarkerType:
-			// only consider this marker when directly on `t` itself, not within embedded fields
-			if len(field.Index) == 1 {
-				if len(tags) > 1 {
-					return Plan{}, fmt.Errorf("invalid table name %q (may not contain commas)", field.Tag.Get("db"))
-				}
-				p.TableName = tags[0]
-			}
-		case field.Type == primaryKeyMarkerType:
-			// only consider this marker when directly on `t` itself, not within embedded fields
-			if len(field.Index) == 1 {
-				p.PrimaryKeyColumnNames = tags
-			}
 		case field.Anonymous && field.Type.Kind() == reflect.Struct:
 			// for embedded struct fields, only consider their members, not the type itself, as a potential column
 			continue
@@ -115,11 +104,16 @@ func buildPlan(t reflect.Type, dialect Dialect) (Plan, error) {
 		}
 	}
 
+	// validation: defining a primary key only makes sense for records that map onto a single table
+	if len(p.PrimaryKeyColumnNames) > 0 && p.TableName == "" {
+		return Plan{}, errors.New("cannot declare a primary key without also providing the TableNameIs option")
+	}
+
 	// validation: oblast.PrimaryKeyInfo must refer to columns that exist
 	for _, columnName := range p.PrimaryKeyColumnNames {
 		_, ok := p.IndexByColumnName[columnName]
 		if !ok {
-			return Plan{}, fmt.Errorf("PrimaryKeyInfo refers to column %[1]q, but no field has tag `db:%[1]q`", columnName)
+			return Plan{}, fmt.Errorf("no field has tag `db:%q`, but a field of this name was declared in the primary key", columnName)
 		}
 	}
 
