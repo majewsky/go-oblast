@@ -32,6 +32,8 @@ linters:
     - prealloc
     - predeclared
     - reassign
+    - revive
+    - rowserrcheck
     - unconvert
     - usestdlibvars
     - usetesting
@@ -71,6 +73,12 @@ linters:
       go-version-pattern: 1\.\d+(\.0)?$
     nolintlint:
       require-specific: true
+    revive:
+      rules:
+        - name: exported
+          arguments:
+            - checkPrivateReceivers
+            - disableChecksOnConstants
     staticcheck:
       dot-import-whitelist:
         - github.com/majewsky/gg/option

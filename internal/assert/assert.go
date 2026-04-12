@@ -9,7 +9,7 @@ import (
 )
 
 // Equal is a test assertion.
-func Equal[V comparable](t *testing.T, actual, expected V) {
+func Equal[V comparable](t testing.TB, actual, expected V) {
 	t.Helper()
 	if actual != expected {
 		t.Errorf("expected %#v, but got %#v", expected, actual)
@@ -17,7 +17,7 @@ func Equal[V comparable](t *testing.T, actual, expected V) {
 }
 
 // DeepEqual is a test assertion.
-func DeepEqual[V any](t *testing.T, actual, expected V) {
+func DeepEqual[V any](t testing.TB, actual, expected V) {
 	t.Helper()
 	if !reflect.DeepEqual(actual, expected) {
 		t.Errorf("expected %#v, but got %#v", expected, actual)

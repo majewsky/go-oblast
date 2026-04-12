@@ -13,40 +13,50 @@ import (
 	"github.com/go-gorp/gorp/v3"
 	_ "github.com/mattn/go-sqlite3"
 	"go.xyrillian.de/oblast"
+	"go.xyrillian.de/oblast/internal/assert"
 )
 
-func BenchmarkSelect(b *testing.B) {
-	const totalRecordCount = 1000
+const totalRecordCount = 1000
 
-	db, err := sql.Open("sqlite3", "file:foobar?mode=memory&cache=shared")
+func makeTestDB(t testing.TB) (*sql.DB, error) {
+	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name()))
 	if err != nil {
-		b.Fatal(err)
+		return nil, err
 	}
 
 	// fill in some random-looking, but deterministic data
 	_, err = db.Exec(`CREATE TABLE entries (id INTEGER, message TEXT)`)
 	if err != nil {
-		b.Fatal(err)
+		return nil, err
 	}
 	stmt, err := db.Prepare(`INSERT INTO entries (id, message) VALUES (?, ?)`)
 	if err != nil {
-		b.Fatal(err)
+		return nil, err
 	}
 	for idx := range totalRecordCount {
 		buf := sha256.Sum256([]byte(strconv.Itoa(idx)))
 		_, err = stmt.Exec(idx, fmt.Sprintf("sha256:%x", buf[:]))
 		if err != nil {
-			b.Fatal(err)
+			return nil, err
 		}
 	}
 	err = stmt.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	return db, nil
+}
+
+func BenchmarkSelect(b *testing.B) {
+	db, err := makeTestDB(b)
 	if err != nil {
 		b.Fatal(err)
 	}
 
 	// test with different sizes of resultsets (N=1 is an OLTP-like workload,
 	// then the larger N lean more towards the OLAP side of things)
-	for _, selectedRecordCount := range []int{1, 10, 100, 1000} {
+	for selectedRecordCount := 1; selectedRecordCount < totalRecordCount; selectedRecordCount *= 10 {
 		b.Run("N="+strconv.Itoa(selectedRecordCount), func(b *testing.B) {
 			// prepare the functions that will be benched
 			type record struct {
@@ -65,9 +75,7 @@ func BenchmarkSelect(b *testing.B) {
 				if err != nil {
 					b.Error(err)
 				}
-				if len(records) != selectedRecordCount {
-					b.Errorf("expected %d, but got %d records", selectedRecordCount, len(records))
-				}
+				assert.Equal(b, len(records), selectedRecordCount)
 			}
 
 			selectWithGorp := func(b *testing.B) {
@@ -76,14 +84,12 @@ func BenchmarkSelect(b *testing.B) {
 				if err != nil {
 					b.Error(err)
 				}
-				if len(records) != selectedRecordCount {
-					b.Errorf("expected %d, but got %d records", selectedRecordCount, len(records))
-				}
+				assert.Equal(b, len(records), selectedRecordCount)
 			}
 
 			selectWithSqlite := func(b *testing.B) {
 				var count int
-				rows, err := db.Query(query)
+				rows, err := db.Query(query) //nolint:rowserrcheck // false positive
 				if err != nil {
 					b.Error(err)
 				}
@@ -104,9 +110,7 @@ func BenchmarkSelect(b *testing.B) {
 				if err != nil {
 					b.Error(err)
 				}
-				if count != selectedRecordCount {
-					b.Errorf("expected %d, but got %d records", selectedRecordCount, count)
-				}
+				assert.Equal(b, count, selectedRecordCount)
 			}
 
 			// run once to prewarm caches
@@ -134,4 +138,79 @@ func BenchmarkSelect(b *testing.B) {
 			})
 		})
 	}
+}
+
+func BenchmarkSelectOne(b *testing.B) {
+	db, err := makeTestDB(b)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// grab a "random" record from the DB, not just the first or the last
+	recordID := min(totalRecordCount*2/3, totalRecordCount)
+
+	// prepare the functions that will be benched
+	type record struct {
+		ID      int    `db:"id"`
+		Message string `db:"message"`
+	}
+	store, err := oblast.NewStore[record](oblast.SqliteDialect())
+	if err != nil {
+		b.Fatal(err)
+	}
+	gdb := gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
+	query := `SELECT * FROM entries WHERE id = ` + strconv.Itoa(recordID)
+
+	selectWithOblast := func(b *testing.B) {
+		r, err := store.SelectOne(db, query)
+		if err != nil {
+			b.Error(err)
+		}
+		assert.Equal(b, r.ID, recordID)
+	}
+
+	selectWithGorp := func(b *testing.B) {
+		var r record
+		err := gdb.SelectOne(&r, query)
+		if err != nil {
+			b.Error(err)
+		}
+		assert.Equal(b, r.ID, recordID)
+	}
+
+	selectWithSqlite := func(b *testing.B) {
+		var (
+			id      int64
+			message string
+		)
+		err := db.QueryRow(query).Scan(&id, &message)
+		if err != nil {
+			b.Error(err)
+		}
+		assert.Equal(b, id, int64(recordID))
+	}
+
+	// run once to prewarm caches
+	selectWithOblast(b)
+	selectWithGorp(b)
+	if b.Failed() {
+		b.FailNow()
+	}
+
+	// run actual benchmark
+	b.Run("via Gorp", func(b *testing.B) {
+		for range b.N {
+			selectWithGorp(b)
+		}
+	})
+	b.Run("via Oblast", func(b *testing.B) {
+		for range b.N {
+			selectWithOblast(b)
+		}
+	})
+	b.Run("just SQLite", func(b *testing.B) {
+		for range b.N {
+			selectWithSqlite(b)
+		}
+	})
 }

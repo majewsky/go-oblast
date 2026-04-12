@@ -42,6 +42,7 @@ package oblast // import "go.xyrillian.de/oblast"
 
 import (
 	"database/sql"
+	"errors"
 
 	"go.xyrillian.de/oblast/internal"
 )
@@ -75,3 +76,6 @@ var (
 	_ Handle = &sql.DB{}
 	_ Handle = &sql.Tx{}
 )
+
+// ErrMultipleRows is returned by [Store.SelectOne] if the query returned multiple rows.
+var ErrMultipleRows = errors.New("sql: multiple rows in result set")
