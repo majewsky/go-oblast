@@ -76,13 +76,17 @@ func TestQueryConstructionBasic(t *testing.T) {
 			t.Error(err)
 		}
 		assert.Equal(t, plan.Select.Query, `SELECT "ID", "Description", "CreatedAt" FROM "basic_records" WHERE `)
-		assert.DeepEqual(t, plan.Select.ArgumentIndexes, [][]int{{0}, {1}, {2}})
+		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
+		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
 		assert.Equal(t, plan.Insert.Query, `INSERT INTO "basic_records" ("Description", "CreatedAt") VALUES ($1, $2) RETURNING "ID"`)
 		assert.DeepEqual(t, plan.Insert.ArgumentIndexes, [][]int{{1}, {2}})
+		assert.DeepEqual(t, plan.Insert.ScanIndexes, [][]int{{0}})
 		assert.Equal(t, plan.Update.Query, `UPDATE "basic_records" SET "Description" = $1, "CreatedAt" = $2 WHERE "ID" = $3`)
 		assert.DeepEqual(t, plan.Update.ArgumentIndexes, [][]int{{1}, {2}, {0}})
+		assert.DeepEqual(t, plan.Update.ScanIndexes, nil)
 		assert.Equal(t, plan.Delete.Query, `DELETE FROM "basic_records" WHERE "ID" = $1`)
 		assert.DeepEqual(t, plan.Delete.ArgumentIndexes, [][]int{{0}})
+		assert.DeepEqual(t, plan.Delete.ScanIndexes, nil)
 	})
 
 	t.Run("SqliteDialect", func(t *testing.T) {
@@ -91,13 +95,17 @@ func TestQueryConstructionBasic(t *testing.T) {
 			t.Error(err)
 		}
 		assert.Equal(t, plan.Select.Query, `SELECT "ID", "Description", "CreatedAt" FROM "basic_records" WHERE `)
-		assert.DeepEqual(t, plan.Select.ArgumentIndexes, [][]int{{0}, {1}, {2}})
+		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
+		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
 		assert.Equal(t, plan.Insert.Query, `INSERT INTO "basic_records" ("Description", "CreatedAt") VALUES (?, ?)`)
 		assert.DeepEqual(t, plan.Insert.ArgumentIndexes, [][]int{{1}, {2}})
+		assert.DeepEqual(t, plan.Insert.ScanIndexes, [][]int{{0}})
 		assert.Equal(t, plan.Update.Query, `UPDATE "basic_records" SET "Description" = ?, "CreatedAt" = ? WHERE "ID" = ?`)
 		assert.DeepEqual(t, plan.Update.ArgumentIndexes, [][]int{{1}, {2}, {0}})
+		assert.DeepEqual(t, plan.Update.ScanIndexes, nil)
 		assert.Equal(t, plan.Delete.Query, `DELETE FROM "basic_records" WHERE "ID" = ?`)
 		assert.DeepEqual(t, plan.Delete.ArgumentIndexes, [][]int{{0}})
+		assert.DeepEqual(t, plan.Delete.ScanIndexes, nil)
 	})
 }
 
@@ -116,13 +124,17 @@ func TestQueryConstructionWithoutPrimaryKey(t *testing.T) {
 			t.Error(err)
 		}
 		assert.Equal(t, plan.Select.Query, `SELECT "foo_id", "bar_id" FROM "foo_bar_relations" WHERE `)
-		assert.DeepEqual(t, plan.Select.ArgumentIndexes, [][]int{{0}, {1}})
+		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
+		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}})
 		assert.Equal(t, plan.Insert.Query, `INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES ($1, $2)`)
 		assert.DeepEqual(t, plan.Insert.ArgumentIndexes, [][]int{{0}, {1}})
+		assert.DeepEqual(t, plan.Insert.ScanIndexes, nil)
 		assert.Equal(t, plan.Update.Query, "")
 		assert.DeepEqual(t, plan.Update.ArgumentIndexes, nil)
+		assert.DeepEqual(t, plan.Update.ScanIndexes, nil)
 		assert.Equal(t, plan.Delete.Query, "")
 		assert.DeepEqual(t, plan.Delete.ArgumentIndexes, nil)
+		assert.DeepEqual(t, plan.Delete.ScanIndexes, nil)
 	})
 
 	t.Run("SqliteDialect", func(t *testing.T) {
@@ -131,13 +143,17 @@ func TestQueryConstructionWithoutPrimaryKey(t *testing.T) {
 			t.Error(err)
 		}
 		assert.Equal(t, plan.Select.Query, `SELECT "foo_id", "bar_id" FROM "foo_bar_relations" WHERE `)
-		assert.DeepEqual(t, plan.Select.ArgumentIndexes, [][]int{{0}, {1}})
+		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
+		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}})
 		assert.Equal(t, plan.Insert.Query, `INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES (?, ?)`)
 		assert.DeepEqual(t, plan.Insert.ArgumentIndexes, [][]int{{0}, {1}})
+		assert.DeepEqual(t, plan.Insert.ScanIndexes, nil)
 		assert.Equal(t, plan.Update.Query, "")
 		assert.DeepEqual(t, plan.Update.ArgumentIndexes, nil)
+		assert.DeepEqual(t, plan.Update.ScanIndexes, nil)
 		assert.Equal(t, plan.Delete.Query, "")
 		assert.DeepEqual(t, plan.Delete.ArgumentIndexes, nil)
+		assert.DeepEqual(t, plan.Delete.ScanIndexes, nil)
 	})
 }
 
@@ -157,12 +173,16 @@ func TestQueryConstructionImpossble(t *testing.T) {
 
 			assert.Equal(t, plan.Select.Query, "")
 			assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
+			assert.DeepEqual(t, plan.Select.ScanIndexes, nil)
 			assert.Equal(t, plan.Insert.Query, "")
 			assert.DeepEqual(t, plan.Insert.ArgumentIndexes, nil)
+			assert.DeepEqual(t, plan.Insert.ScanIndexes, nil)
 			assert.Equal(t, plan.Update.Query, "")
 			assert.DeepEqual(t, plan.Update.ArgumentIndexes, nil)
+			assert.DeepEqual(t, plan.Update.ScanIndexes, nil)
 			assert.Equal(t, plan.Delete.Query, "")
 			assert.DeepEqual(t, plan.Delete.ArgumentIndexes, nil)
+			assert.DeepEqual(t, plan.Delete.ScanIndexes, nil)
 		}
 	}
 
@@ -187,13 +207,17 @@ func TestQueryConstructionWithMultiplePrimaryKeyColumns(t *testing.T) {
 			t.Error(err)
 		}
 		assert.Equal(t, plan.Select.Query, `SELECT "group_id", "name", "created_at" FROM "complex_records" WHERE `)
-		assert.DeepEqual(t, plan.Select.ArgumentIndexes, [][]int{{0}, {1}, {2}})
+		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
+		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
 		assert.Equal(t, plan.Insert.Query, `INSERT INTO "complex_records" ("group_id", "name", "created_at") VALUES ($1, $2, $3)`)
 		assert.DeepEqual(t, plan.Insert.ArgumentIndexes, [][]int{{0}, {1}, {2}})
+		assert.DeepEqual(t, plan.Insert.ScanIndexes, nil)
 		assert.Equal(t, plan.Update.Query, `UPDATE "complex_records" SET "created_at" = $1 WHERE "group_id" = $2 AND "name" = $3`)
 		assert.DeepEqual(t, plan.Update.ArgumentIndexes, [][]int{{2}, {0}, {1}})
+		assert.DeepEqual(t, plan.Update.ScanIndexes, nil)
 		assert.Equal(t, plan.Delete.Query, `DELETE FROM "complex_records" WHERE "group_id" = $1 AND "name" = $2`)
 		assert.DeepEqual(t, plan.Delete.ArgumentIndexes, [][]int{{0}, {1}})
+		assert.DeepEqual(t, plan.Delete.ScanIndexes, nil)
 	})
 
 	t.Run("SqliteDialect", func(t *testing.T) {
@@ -202,13 +226,17 @@ func TestQueryConstructionWithMultiplePrimaryKeyColumns(t *testing.T) {
 			t.Error(err)
 		}
 		assert.Equal(t, plan.Select.Query, `SELECT "group_id", "name", "created_at" FROM "complex_records" WHERE `)
-		assert.DeepEqual(t, plan.Select.ArgumentIndexes, [][]int{{0}, {1}, {2}})
+		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
+		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
 		assert.Equal(t, plan.Insert.Query, `INSERT INTO "complex_records" ("group_id", "name", "created_at") VALUES (?, ?, ?)`)
 		assert.DeepEqual(t, plan.Insert.ArgumentIndexes, [][]int{{0}, {1}, {2}})
+		assert.DeepEqual(t, plan.Insert.ScanIndexes, nil)
 		assert.Equal(t, plan.Update.Query, `UPDATE "complex_records" SET "created_at" = ? WHERE "group_id" = ? AND "name" = ?`)
 		assert.DeepEqual(t, plan.Update.ArgumentIndexes, [][]int{{2}, {0}, {1}})
+		assert.DeepEqual(t, plan.Update.ScanIndexes, nil)
 		assert.Equal(t, plan.Delete.Query, `DELETE FROM "complex_records" WHERE "group_id" = ? AND "name" = ?`)
 		assert.DeepEqual(t, plan.Delete.ArgumentIndexes, [][]int{{0}, {1}})
+		assert.DeepEqual(t, plan.Delete.ScanIndexes, nil)
 	})
 }
 
@@ -229,13 +257,17 @@ func TestQueryConstructionWithMultipleAutoColumns(t *testing.T) {
 			t.Error(err)
 		}
 		assert.Equal(t, plan.Select.Query, `SELECT "id", "name", "created_at" FROM "autogenerated_records" WHERE `)
-		assert.DeepEqual(t, plan.Select.ArgumentIndexes, [][]int{{0}, {1}, {2}})
+		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
+		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
 		assert.Equal(t, plan.Insert.Query, `INSERT INTO "autogenerated_records" ("name") VALUES ($1) RETURNING "id", "created_at"`)
 		assert.DeepEqual(t, plan.Insert.ArgumentIndexes, [][]int{{1}})
+		assert.DeepEqual(t, plan.Insert.ScanIndexes, [][]int{{0}, {2}})
 		assert.Equal(t, plan.Update.Query, `UPDATE "autogenerated_records" SET "name" = $1, "created_at" = $2 WHERE "id" = $3`)
 		assert.DeepEqual(t, plan.Update.ArgumentIndexes, [][]int{{1}, {2}, {0}})
+		assert.DeepEqual(t, plan.Update.ScanIndexes, nil)
 		assert.Equal(t, plan.Delete.Query, `DELETE FROM "autogenerated_records" WHERE "id" = $1`)
 		assert.DeepEqual(t, plan.Delete.ArgumentIndexes, [][]int{{0}})
+		assert.DeepEqual(t, plan.Delete.ScanIndexes, nil)
 	})
 
 	t.Run("SqliteDialect", func(t *testing.T) {
