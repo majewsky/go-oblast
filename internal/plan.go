@@ -23,6 +23,7 @@ type Plan struct {
 	IndexByColumnName map[string][]int
 
 	// Planned queries.
+	Select PlannedQuery // only `SELECT ... FROM ...` without WHERE or any of the other clauses
 	Insert PlannedQuery
 	Update PlannedQuery
 	Delete PlannedQuery
@@ -126,6 +127,7 @@ func buildPlan(t reflect.Type, dialect Dialect, opts PlanOpts) (Plan, error) {
 	}
 
 	// prepare query strings
+	p.Select = p.buildSelectQueryIfPossible(dialect)
 	p.Insert = p.buildInsertQueryIfPossible(dialect)
 	p.Update = p.buildUpdateQueryIfPossible(dialect)
 	p.Delete = p.buildDeleteQueryIfPossible(dialect)
@@ -151,6 +153,28 @@ func (p Plan) getNonPrimaryKeyColumnNames() []string {
 		}
 	}
 	return result
+}
+
+func (p Plan) buildSelectQueryIfPossible(dialect Dialect) PlannedQuery {
+	if p.TableName == "" {
+		return PlannedQuery{Query: ""}
+	}
+
+	var (
+		argumentIndexes   = make([][]int, len(p.AllColumnNames))
+		quotedColumnNames = make([]string, len(p.AllColumnNames))
+	)
+	for idx, columnName := range p.AllColumnNames {
+		argumentIndexes[idx] = p.IndexByColumnName[columnName]
+		quotedColumnNames[idx] = dialect.QuoteIdentifier(columnName)
+	}
+
+	query := fmt.Sprintf(
+		`SELECT %s FROM %s WHERE `,
+		strings.Join(quotedColumnNames, ", "),
+		dialect.QuoteIdentifier(p.TableName),
+	)
+	return PlannedQuery{query, argumentIndexes}
 }
 
 func (p Plan) buildInsertQueryIfPossible(dialect Dialect) PlannedQuery {

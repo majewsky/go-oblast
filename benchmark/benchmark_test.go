@@ -48,7 +48,7 @@ func makeTestDB(t testing.TB) (*sql.DB, error) {
 	return db, nil
 }
 
-func BenchmarkSelect(b *testing.B) {
+func BenchmarkSelectMany(b *testing.B) {
 	db, err := makeTestDB(b)
 	if err != nil {
 		b.Fatal(err)
@@ -63,15 +63,27 @@ func BenchmarkSelect(b *testing.B) {
 				ID      int    `db:"id"`
 				Message string `db:"message"`
 			}
-			store, err := oblast.NewStore[record](oblast.SqliteDialect())
+			store, err := oblast.NewStore[record](
+				oblast.SqliteDialect(),
+				oblast.TableNameIs("entries"),
+			)
 			if err != nil {
 				b.Fatal(err)
 			}
 			gdb := gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
-			query := `SELECT * FROM entries WHERE id < ` + strconv.Itoa(selectedRecordCount) //nolint:gosec
+			partialQuery := `id < ` + strconv.Itoa(selectedRecordCount)
+			query := `SELECT * FROM entries WHERE ` + partialQuery //nolint:gosec
 
 			selectWithOblast := func(b *testing.B) {
 				records, err := store.Select(db, query)
+				if err != nil {
+					b.Error(err)
+				}
+				assert.Equal(b, len(records), selectedRecordCount)
+			}
+
+			selectWithOblastWhere := func(b *testing.B) {
+				records, err := store.SelectWhere(db, partialQuery)
 				if err != nil {
 					b.Error(err)
 				}
@@ -121,14 +133,19 @@ func BenchmarkSelect(b *testing.B) {
 			}
 
 			// run actual benchmark
-			b.Run("via Gorp", func(b *testing.B) {
+			b.Run("via Gorp using Select", func(b *testing.B) {
 				for range b.N {
 					selectWithGorp(b)
 				}
 			})
-			b.Run("via Oblast", func(b *testing.B) {
+			b.Run("via Oblast using Select", func(b *testing.B) {
 				for range b.N {
 					selectWithOblast(b)
+				}
+			})
+			b.Run("via Oblast using SelectWhere", func(b *testing.B) {
+				for range b.N {
+					selectWithOblastWhere(b)
 				}
 			})
 			b.Run("just SQLite", func(b *testing.B) {
@@ -154,15 +171,27 @@ func BenchmarkSelectOne(b *testing.B) {
 		ID      int    `db:"id"`
 		Message string `db:"message"`
 	}
-	store, err := oblast.NewStore[record](oblast.SqliteDialect())
+	store, err := oblast.NewStore[record](
+		oblast.SqliteDialect(),
+		oblast.TableNameIs("entries"),
+	)
 	if err != nil {
 		b.Fatal(err)
 	}
 	gdb := gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
-	query := `SELECT * FROM entries WHERE id = ` + strconv.Itoa(recordID)
+	partialQuery := `id = ` + strconv.Itoa(recordID)
+	query := `SELECT * FROM entries WHERE ` + partialQuery
 
 	selectWithOblast := func(b *testing.B) {
 		r, err := store.SelectOne(db, query)
+		if err != nil {
+			b.Error(err)
+		}
+		assert.Equal(b, r.ID, recordID)
+	}
+
+	selectWithOblastWhere := func(b *testing.B) {
+		r, err := store.SelectOneWhere(db, partialQuery)
 		if err != nil {
 			b.Error(err)
 		}
@@ -198,14 +227,19 @@ func BenchmarkSelectOne(b *testing.B) {
 	}
 
 	// run actual benchmark
-	b.Run("via Gorp", func(b *testing.B) {
+	b.Run("via Gorp using SelectOne", func(b *testing.B) {
 		for range b.N {
 			selectWithGorp(b)
 		}
 	})
-	b.Run("via Oblast", func(b *testing.B) {
+	b.Run("via Oblast using SelectOne", func(b *testing.B) {
 		for range b.N {
 			selectWithOblast(b)
+		}
+	})
+	b.Run("via Oblast using SelectOneWhere", func(b *testing.B) {
+		for range b.N {
+			selectWithOblastWhere(b)
 		}
 	})
 	b.Run("just SQLite", func(b *testing.B) {
