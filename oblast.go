@@ -40,7 +40,11 @@
 //	}
 package oblast // import "go.xyrillian.de/oblast"
 
-import "go.xyrillian.de/oblast/internal"
+import (
+	"database/sql"
+
+	"go.xyrillian.de/oblast/internal"
+)
 
 // PlanOption is an option that can be given to NewStore() to influence query planning for a certain type of record.
 type PlanOption func(*internal.PlanOpts)
@@ -56,3 +60,18 @@ func TableNameIs(name string) PlanOption {
 func PrimaryKeyIs(columnNames ...string) PlanOption {
 	return func(opts *internal.PlanOpts) { opts.PrimaryKeyColumnNames = columnNames }
 }
+
+// Handle is an interface for functions providing direct DB access.
+// It covers methods provided by both *sql.DB and *sql.Tx, thus allowing functions using it to be used both within and outside of transactions.
+type Handle interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	Prepare(query string) (*sql.Stmt, error)
+	Query(query string, args ...any) (*sql.Rows, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+// static assertion that the respective types implement the interface
+var (
+	_ Handle = &sql.DB{}
+	_ Handle = &sql.Tx{}
+)

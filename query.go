@@ -11,8 +11,7 @@ import (
 	"go.xyrillian.de/oblast/internal"
 )
 
-// TODO: allow taking *sql.Tx in addition to *sql.DB
-func (s Store[R]) Select(db *sql.DB, query string, args ...any) (result []R, returnedError error) {
+func (s Store[R]) Select(db Handle, query string, args ...any) (result []R, returnedError error) {
 	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
 	//       Any expression that does not depend on type R should be factored out into a reusable function.
 
@@ -37,7 +36,7 @@ func (s Store[R]) Select(db *sql.DB, query string, args ...any) (result []R, ret
 	return result, nil
 }
 
-func startQuery(db *sql.DB, plan internal.Plan, query string, args ...any) (rows *sql.Rows, indexes [][]int, err error) {
+func startQuery(db Handle, plan internal.Plan, query string, args ...any) (rows *sql.Rows, indexes [][]int, err error) {
 	rows, err = db.Query(query, args...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("during Query(): %w", err)
