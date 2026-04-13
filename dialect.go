@@ -39,6 +39,18 @@ type Dialect interface {
 	InsertSuffixForAutoColumns(columns []string) string
 }
 
+// MysqlDialect is the dialect of MySQL and MariaDB databases.
+func MysqlDialect() Dialect {
+	return mysqlDialect{}
+}
+
+type mysqlDialect struct{}
+
+func (mysqlDialect) Placeholder(_ int) string                           { return "?" }
+func (mysqlDialect) QuoteIdentifier(name string) string                 { return "`" + name + "`" }
+func (mysqlDialect) UsesLastInsertID() bool                             { return true }
+func (mysqlDialect) InsertSuffixForAutoColumns(columns []string) string { return "" }
+
 // PostgresDialect is the dialect of PostgreSQL databases.
 func PostgresDialect() Dialect {
 	return postgresDialect{}
