@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Stefan Majewsky <majewsky@gmx.net>
 // SPDX-License-Identifier: Apache-2.0
 
-package internal
+package oblast
 
 import (
 	"errors"
@@ -11,9 +11,9 @@ import (
 	"strings"
 )
 
-// Plan holds all information that we can derive from reflecting on a given type.
+// plan holds all information that we can derive from reflecting on a given type.
 // The queries held within are only valid within the context of a given SQL dialect.
-type Plan struct {
+type plan struct {
 	TypeName              string   // for use in error messages
 	TableName             string   // from info.TableNameIs marker (if any)
 	AllColumnNames        []string // in order of struct fields
@@ -28,15 +28,15 @@ type Plan struct {
 	FillIDWithSetInt  bool
 
 	// Planned queries.
-	Select PlannedQuery // only `SELECT ... FROM ... WHERE `; user supplies the rest during Select{,One}Where()
-	Insert PlannedQuery
-	Update PlannedQuery
-	Delete PlannedQuery
+	Select plannedQuery // only `SELECT ... FROM ... WHERE `; user supplies the rest during Select{,One}Where()
+	Insert plannedQuery
+	Update plannedQuery
+	Delete plannedQuery
 }
 
-// PlannedQuery appears in type Plan.
-type PlannedQuery struct {
-	// Empty if the respective query type is not supported by this Plan for lack of the required marker types.
+// plannedQuery appears in type plan.
+type plannedQuery struct {
+	// Empty if the respective query type is not supported by this plan for lack of the required marker types.
 	Query string
 	// Arguments for reflect.Value.FieldByIndex() in the correct order for the query arguments of the above query.
 	ArgumentIndexes [][]int
@@ -44,27 +44,19 @@ type PlannedQuery struct {
 	ScanIndexes [][]int
 }
 
-// PlanOpts holds additional arguments to BuildPlan().
-type PlanOpts struct {
+// planOpts holds additional arguments to buildPlan().
+type planOpts struct {
 	TableName             string
 	PrimaryKeyColumnNames []string
 }
 
-// BuildPlan creates a new plan for the given struct type.
-func BuildPlan(t reflect.Type, dialect Dialect, opts PlanOpts) (Plan, error) {
-	p, err := buildPlan(t, dialect, opts)
-	if err != nil {
-		return Plan{}, fmt.Errorf("cannot use type %s.%s for queries: %w", t.PkgPath(), t.Name(), err)
-	}
-	return p, nil
-}
-
-func buildPlan(t reflect.Type, dialect Dialect, opts PlanOpts) (Plan, error) {
+// buildPlan creates a new plan for the given struct type.
+func buildPlan(t reflect.Type, dialect Dialect, opts planOpts) (plan, error) {
 	if t.Kind() != reflect.Struct {
-		return Plan{}, fmt.Errorf("expected struct type, but got kind %s", t.Kind().String())
+		return plan{}, fmt.Errorf("expected struct type, but got kind %s", t.Kind().String())
 	}
 
-	var p = Plan{
+	var p = plan{
 		TypeName:              t.Name(),
 		TableName:             opts.TableName,
 		PrimaryKeyColumnNames: opts.PrimaryKeyColumnNames,
@@ -92,7 +84,7 @@ func buildPlan(t reflect.Type, dialect Dialect, opts PlanOpts) (Plan, error) {
 				columnName = field.Name
 			}
 			if otherIndex := p.IndexByColumnName[columnName]; otherIndex != nil {
-				return Plan{}, fmt.Errorf(
+				return plan{}, fmt.Errorf(
 					"duplicate tag `db:%q` on field index %v, but also on field index %v",
 					columnName, otherIndex, field.Index,
 				)
@@ -105,7 +97,7 @@ func buildPlan(t reflect.Type, dialect Dialect, opts PlanOpts) (Plan, error) {
 				case "auto":
 					p.AutoColumnNames = append(p.AutoColumnNames, columnName)
 				default:
-					return Plan{}, fmt.Errorf("unknown tag `db:%q` on field index %v", ","+tag, field.Index)
+					return plan{}, fmt.Errorf("unknown tag `db:%q` on field index %v", ","+tag, field.Index)
 				}
 			}
 		}
@@ -113,14 +105,14 @@ func buildPlan(t reflect.Type, dialect Dialect, opts PlanOpts) (Plan, error) {
 
 	// validation: defining a primary key only makes sense for records that map onto a single table
 	if len(p.PrimaryKeyColumnNames) > 0 && p.TableName == "" {
-		return Plan{}, errors.New("cannot declare a primary key without also providing the TableNameIs option")
+		return plan{}, errors.New("cannot declare a primary key without also providing the TableNameIs option")
 	}
 
 	// validation: oblast.PrimaryKeyInfo must refer to columns that exist
 	for _, columnName := range p.PrimaryKeyColumnNames {
 		_, ok := p.IndexByColumnName[columnName]
 		if !ok {
-			return Plan{}, fmt.Errorf("no field has tag `db:%q`, but a field of this name was declared in the primary key", columnName)
+			return plan{}, fmt.Errorf("no field has tag `db:%q`, but a field of this name was declared in the primary key", columnName)
 		}
 	}
 
@@ -138,13 +130,13 @@ func buildPlan(t reflect.Type, dialect Dialect, opts PlanOpts) (Plan, error) {
 			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 				p.FillIDWithSetUint = true
 			default:
-				return Plan{}, fmt.Errorf(
+				return plan{}, fmt.Errorf(
 					"column is marked as auto-filled (%s), but this SQL dialect only supports auto-filling struct fields with integer types",
 					strings.Join(p.AutoColumnNames, ", "),
 				)
 			}
 		default:
-			return Plan{}, fmt.Errorf(
+			return plan{}, fmt.Errorf(
 				"multiple columns are marked as auto-filled (%s), but this SQL dialect only supports at most one per table",
 				strings.Join(p.AutoColumnNames, ", "),
 			)
@@ -160,7 +152,7 @@ func buildPlan(t reflect.Type, dialect Dialect, opts PlanOpts) (Plan, error) {
 	return p, nil
 }
 
-func (p Plan) getNonAutoColumnNames() []string {
+func (p plan) getNonAutoColumnNames() []string {
 	result := make([]string, 0, len(p.AllColumnNames)-len(p.AutoColumnNames))
 	for _, columnName := range p.AllColumnNames {
 		if !slices.Contains(p.AutoColumnNames, columnName) {
@@ -170,7 +162,7 @@ func (p Plan) getNonAutoColumnNames() []string {
 	return result
 }
 
-func (p Plan) getNonPrimaryKeyColumnNames() []string {
+func (p plan) getNonPrimaryKeyColumnNames() []string {
 	result := make([]string, 0, len(p.AllColumnNames)-len(p.PrimaryKeyColumnNames))
 	for _, columnName := range p.AllColumnNames {
 		if !slices.Contains(p.PrimaryKeyColumnNames, columnName) {
@@ -180,9 +172,9 @@ func (p Plan) getNonPrimaryKeyColumnNames() []string {
 	return result
 }
 
-func (p Plan) buildSelectQueryIfPossible(dialect Dialect) PlannedQuery {
+func (p plan) buildSelectQueryIfPossible(dialect Dialect) plannedQuery {
 	if p.TableName == "" {
-		return PlannedQuery{Query: ""}
+		return plannedQuery{Query: ""}
 	}
 
 	var (
@@ -199,16 +191,16 @@ func (p Plan) buildSelectQueryIfPossible(dialect Dialect) PlannedQuery {
 		strings.Join(quotedColumnNames, ", "),
 		dialect.QuoteIdentifier(p.TableName),
 	)
-	return PlannedQuery{query, nil, scanIndexes}
+	return plannedQuery{query, nil, scanIndexes}
 }
 
-func (p Plan) buildInsertQueryIfPossible(dialect Dialect) PlannedQuery {
+func (p plan) buildInsertQueryIfPossible(dialect Dialect) plannedQuery {
 	if p.TableName == "" || len(p.AllColumnNames) == 0 {
-		return PlannedQuery{Query: ""}
+		return plannedQuery{Query: ""}
 	}
 	nonAutoColumnNames := p.getNonAutoColumnNames()
 	if len(nonAutoColumnNames) == 0 {
-		return PlannedQuery{Query: ""}
+		return plannedQuery{Query: ""}
 	}
 
 	var (
@@ -240,16 +232,16 @@ func (p Plan) buildInsertQueryIfPossible(dialect Dialect) PlannedQuery {
 	if len(p.AutoColumnNames) > 0 {
 		query += dialect.InsertSuffixForAutoColumns(p.AutoColumnNames)
 	}
-	return PlannedQuery{query, argumentIndexes, scanIndexes}
+	return plannedQuery{query, argumentIndexes, scanIndexes}
 }
 
-func (p Plan) buildUpdateQueryIfPossible(dialect Dialect) PlannedQuery {
+func (p plan) buildUpdateQueryIfPossible(dialect Dialect) plannedQuery {
 	if p.TableName == "" || len(p.PrimaryKeyColumnNames) == 0 {
-		return PlannedQuery{Query: ""}
+		return plannedQuery{Query: ""}
 	}
 	nonPrimaryKeyColumnNames := p.getNonPrimaryKeyColumnNames()
 	if len(nonPrimaryKeyColumnNames) == 0 {
-		return PlannedQuery{Query: ""}
+		return plannedQuery{Query: ""}
 	}
 
 	var (
@@ -276,12 +268,12 @@ func (p Plan) buildUpdateQueryIfPossible(dialect Dialect) PlannedQuery {
 		strings.Join(setClauses, ", "),
 		strings.Join(whereClauses, " AND "),
 	)
-	return PlannedQuery{query, slices.Concat(setArgumentIndexes, whereArgumentIndexes), nil}
+	return plannedQuery{query, slices.Concat(setArgumentIndexes, whereArgumentIndexes), nil}
 }
 
-func (p Plan) buildDeleteQueryIfPossible(dialect Dialect) PlannedQuery {
+func (p plan) buildDeleteQueryIfPossible(dialect Dialect) plannedQuery {
 	if p.TableName == "" || len(p.PrimaryKeyColumnNames) == 0 {
-		return PlannedQuery{Query: ""}
+		return plannedQuery{Query: ""}
 	}
 
 	var (
@@ -298,5 +290,5 @@ func (p Plan) buildDeleteQueryIfPossible(dialect Dialect) PlannedQuery {
 		dialect.QuoteIdentifier(p.TableName),
 		strings.Join(clauses, " AND "),
 	)
-	return PlannedQuery{query, argumentIndexes, nil}
+	return plannedQuery{query, argumentIndexes, nil}
 }

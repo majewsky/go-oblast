@@ -3,7 +3,10 @@
 
 package oblast
 
-import "go.xyrillian.de/oblast/internal"
+import (
+	"strconv"
+	"strings"
+)
 
 // Dialect accounts for differences between different SQL dialects
 // that are relevant to query generation within Oblast.
@@ -38,10 +41,31 @@ type Dialect interface {
 
 // PostgresDialect is the dialect of PostgreSQL databases.
 func PostgresDialect() Dialect {
-	return internal.PostgresDialect{}
+	return postgresDialect{}
+}
+
+type postgresDialect struct{}
+
+func (postgresDialect) Placeholder(i int) string           { return "$" + strconv.Itoa(i+1) }
+func (postgresDialect) QuoteIdentifier(name string) string { return `"` + name + `"` }
+func (postgresDialect) UsesLastInsertID() bool             { return false }
+
+func (p postgresDialect) InsertSuffixForAutoColumns(columns []string) string {
+	quotedColumns := make([]string, len(columns))
+	for idx, name := range columns {
+		quotedColumns[idx] = p.QuoteIdentifier(name)
+	}
+	return ` RETURNING ` + strings.Join(quotedColumns, ", ")
 }
 
 // SqliteDialect is the dialect of SQLite databases.
 func SqliteDialect() Dialect {
-	return internal.SqliteDialect{}
+	return sqliteDialect{}
 }
+
+type sqliteDialect struct{}
+
+func (sqliteDialect) Placeholder(_ int) string                           { return "?" }
+func (sqliteDialect) QuoteIdentifier(name string) string                 { return `"` + name + `"` }
+func (sqliteDialect) UsesLastInsertID() bool                             { return true }
+func (sqliteDialect) InsertSuffixForAutoColumns(columns []string) string { return "" }
