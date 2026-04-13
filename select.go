@@ -79,16 +79,16 @@ func (s Store[R]) SelectWhere(db Handle, partialQuery string, args ...any) (resu
 	return result, nil
 }
 
-func startSelectQuery(db Handle, plan internal.Plan, query string, args ...any) (rows *sql.Rows, indexes [][]int, err error) {
-	rows, err = db.Query(query, args...)
+func startSelectQuery(db Handle, plan internal.Plan, query string, args ...any) (returnedRows *sql.Rows, indexes [][]int, returnedError error) {
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("during Query(): %w", err)
 	}
 	defer func() {
-		if err != nil {
-			closeErr := rows.Close()
+		if returnedError != nil {
+			closeErr := rows.Close() // NOTE: Not `returnedRows.Close()`! We may have `rows != nil && returnedRows == nil`.
 			if closeErr != nil {
-				err = fmt.Errorf("%w (additional error during rows.Close(): %s)", err, closeErr.Error())
+				returnedError = fmt.Errorf("%w (additional error during rows.Close(): %s)", returnedError, closeErr.Error())
 			}
 		}
 	}()
@@ -103,8 +103,8 @@ func startSelectQuery(db Handle, plan internal.Plan, query string, args ...any) 
 		indexes[idx], ok = plan.IndexByColumnName[columnName]
 		if !ok {
 			return nil, nil, fmt.Errorf(
-				"result has column %q in position %d, but no field in record type has `db:%[1]q`",
-				columnName, idx,
+				"result has column %q in position %d, but no field in type %s has `db:%[1]q`",
+				columnName, idx, plan.TypeName,
 			)
 		}
 	}
@@ -125,11 +125,7 @@ func collectRow(rows *sql.Rows, v reflect.Value, slots []any, indexes [][]int) e
 	for idx, index := range indexes {
 		slots[idx] = v.FieldByIndex(index).Addr().Interface()
 	}
-	err := rows.Scan(slots...)
-	if err != nil {
-		return fmt.Errorf("during rows.Scan(): %w", err)
-	}
-	return nil
+	return rows.Scan(slots...)
 }
 
 func mergeCloseError(typeName string, err, closeErr error) error {
@@ -147,7 +143,6 @@ func mergeCloseError(typeName string, err, closeErr error) error {
 // according to the column names reported by the database as part of the result set.
 //
 // If there are no rows in the result set, [sql.ErrNoRows] is returned.
-// If there are multiple rows in the result set, [ErrMultipleRows] is returned.
 //
 // Warning: Because of limitations in the interface of database/sql, this function is built on [Store.Select] and cannot be any faster than it.
 // For maximum performance, use [Store.SelectOneWhere] which avoids the overhead of potentially having to read multiple rows.
@@ -158,13 +153,10 @@ func (s Store[R]) SelectOne(db Handle, query string, args ...any) (result R, err
 	var results []R
 	results, err = s.Select(db, query, args...)
 	if err == nil {
-		switch len(results) {
-		case 0:
+		if len(results) == 0 {
 			err = sql.ErrNoRows
-		case 1:
+		} else {
 			result = results[0]
-		default:
-			err = ErrMultipleRows
 		}
 	}
 	return
@@ -173,7 +165,8 @@ func (s Store[R]) SelectOne(db Handle, query string, args ...any) (result R, err
 // SelectOneWhere is like [Store.SelectOne], but you only provide the part of the SELECT query that comes after the WHERE.
 // See [Store.SelectWhere] for an explanation of how the full query is constructed from this partial query.
 //
-// This method is significantly more efficient than [Store.SelectWhere] and using it is recommended when possible.
+// This method is significantly more efficient than [Store.SelectOne].
+// Prefer using it instaed of [Store.SelectOne] whenever possible.
 func (s Store[R]) SelectOneWhere(db Handle, partialQuery string, args ...any) (result R, err error) {
 	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
 	//       Any expression that does not depend on type R should be factored out into a reusable function.

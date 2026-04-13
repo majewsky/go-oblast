@@ -75,22 +75,26 @@ func newExpectation[T any](args []any) expectation[T] {
 		output: new(T),
 	}
 	for idx, arg := range args {
-		e.args[idx] = arg
+		var err error
+		e.args[idx], err = driver.DefaultParameterConverter.ConvertValue(arg)
+		if err != nil {
+			panic(fmt.Sprintf("could not convert value %#v into driver.Value: %s", arg, err.Error()))
+		}
 	}
 	return e
 }
 
-// ExpectExec plans a response to an Exec() call.
-func (rs *ResponseSet) ExpectExec(args ...any) *Result {
+// ExpectExecWithArgs plans a response to an Exec() call.
+func (rs *ResponseSet) ExpectExecWithArgs(args ...any) *Result {
 	e := newExpectation[Result](args)
 	rs.expectedExecs = append(rs.expectedExecs, e)
 	return e.output
 }
 
-// ExpectQuery plans a response to a Query() or QueryRows() call.
-func (rs *ResponseSet) ExpectQuery(args ...any) *Result {
-	e := newExpectation[Result](args)
-	rs.expectedExecs = append(rs.expectedExecs, e)
+// ExpectQueryWithArgs plans a response to a Query() or QueryRows() call.
+func (rs *ResponseSet) ExpectQueryWithArgs(args ...any) *Rows {
+	e := newExpectation[Rows](args)
+	rs.expectedQueries = append(rs.expectedQueries, e)
 	return e.output
 }
 
@@ -258,7 +262,7 @@ func (r *Rows) AndReturnColumns(columns ...string) *Rows {
 // WithRow adds a row to the result set that will be returned by this query.
 // This may only be called after AndReturnColumns().
 func (r *Rows) WithRow(values ...any) *Rows {
-	if len(r.columns) != 0 {
+	if len(r.columns) == 0 {
 		panic("AndReturnColumns() has not been called for this Rows object yet")
 	}
 	if len(r.columns) != len(values) {

@@ -14,6 +14,7 @@ import (
 // Plan holds all information that we can derive from reflecting on a given type.
 // The queries held within are only valid within the context of a given SQL dialect.
 type Plan struct {
+	TypeName              string   // for use in error messages
 	TableName             string   // from info.TableNameIs marker (if any)
 	AllColumnNames        []string // in order of struct fields
 	PrimaryKeyColumnNames []string // from info.PrimaryKeyIs marker (if any)
@@ -64,6 +65,7 @@ func buildPlan(t reflect.Type, dialect Dialect, opts PlanOpts) (Plan, error) {
 	}
 
 	var p = Plan{
+		TypeName:              t.Name(),
 		TableName:             opts.TableName,
 		PrimaryKeyColumnNames: opts.PrimaryKeyColumnNames,
 		IndexByColumnName:     make(map[string][]int),
