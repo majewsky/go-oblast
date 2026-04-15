@@ -56,7 +56,7 @@ type planOpts struct {
 // buildPlan creates a new plan for the given struct type.
 func buildPlan(t reflect.Type, dialect Dialect, opts planOpts) (plan, error) {
 	if t.Kind() != reflect.Struct {
-		return plan{}, fmt.Errorf("expected struct type, but got kind %s", t.Kind().String())
+		return plan{}, fmt.Errorf("expected struct type, but got kind %q", t.Kind().String())
 	}
 
 	var p = plan{
@@ -134,7 +134,7 @@ func buildPlan(t reflect.Type, dialect Dialect, opts planOpts) (plan, error) {
 			case "auto":
 				p.AutoColumnNames = append(p.AutoColumnNames, columnName)
 			default:
-				return plan{}, fmt.Errorf("unknown tag `db:%q` on field index %v", ","+tag, field.Index)
+				return plan{}, fmt.Errorf("unknown option `db:%q` on field %q", ","+tag, field.Name)
 			}
 		}
 	}
@@ -146,7 +146,7 @@ func buildPlan(t reflect.Type, dialect Dialect, opts planOpts) (plan, error) {
 	for _, index := range indexesOfUnusedTransparentStructs {
 		field := t.FieldByIndex(index)
 		return plan{}, fmt.Errorf(
-			"field %q of type %s does not contain any mapped fields (to map this entire field to a DB column, add an explicit `db:\"...\"` tag)",
+			"field %q of type %s does not contain any mapped fields (to map this whole field to a DB column, add an explicit `db:\"...\"` tag)",
 			field.Name, field.Type.String(),
 		)
 	}
@@ -179,9 +179,8 @@ func buildPlan(t reflect.Type, dialect Dialect, opts planOpts) (plan, error) {
 				p.FillIDWithSetUint = true
 			default:
 				return plan{}, fmt.Errorf(
-					"column is marked as auto-filled (%s), but this SQL dialect only supports auto-filling struct fields with integer types",
-					strings.Join(p.AutoColumnNames, ", "),
-				)
+					"column %q is marked as auto-filled, but this SQL dialect only supports auto-filling struct fields with integer types",
+					columnName)
 			}
 		default:
 			return plan{}, fmt.Errorf(

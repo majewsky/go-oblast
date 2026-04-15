@@ -22,11 +22,11 @@ func TestSelectReturningSomeRecords(t *testing.T) {
 		ID   int64  `db:"id"`
 		Name string `db:"name"`
 	}
-	store := must.Return(oblast.NewStore[basicRecord](
+	store := oblast.MustNewStore[basicRecord](
 		oblast.SqliteDialect(),
 		oblast.TableNameIs("basic_records"),
 		oblast.PrimaryKeyIs("id"),
-	))(t)
+	)
 
 	t.Run("using Store.Select", func(t *testing.T) {
 		md.ForQuery(`SELECT * FROM basic_records WHERE id < ?`).
@@ -83,11 +83,11 @@ func TestSelectReturningNoRecords(t *testing.T) {
 		ID   int64  `db:"id"`
 		Name string `db:"name"`
 	}
-	store := must.Return(oblast.NewStore[basicRecord](
+	store := oblast.MustNewStore[basicRecord](
 		oblast.SqliteDialect(),
 		oblast.TableNameIs("basic_records"),
 		oblast.PrimaryKeyIs("id"),
-	))(t)
+	)
 
 	t.Run("using Store.Select", func(t *testing.T) {
 		md.ForQuery(`SELECT * FROM basic_records WHERE id < ?`).
@@ -130,11 +130,11 @@ func TestSelectIntoUnexpectedField(t *testing.T) {
 		ID          int64  `db:"id"`
 		Description string `db:"desc"` // but DB knows only the field "name"!
 	}
-	store := must.Return(oblast.NewStore[basicRecord](
+	store := oblast.MustNewStore[basicRecord](
 		oblast.SqliteDialect(),
 		oblast.TableNameIs("basic_records"),
 		oblast.PrimaryKeyIs("id"),
-	))(t)
+	)
 
 	expectedError := "result has column \"name\" in position 0, but no field in type basicRecord has `db:\"name\"`"
 
@@ -169,11 +169,11 @@ func TestSelectWithScanError(t *testing.T) {
 		ID        int64     `db:"id"`
 		CreatedAt time.Time `db:"created_at"` // but the DB will give us strings that are not timestamps
 	}
-	store := must.Return(oblast.NewStore[basicRecord](
+	store := oblast.MustNewStore[basicRecord](
 		oblast.SqliteDialect(),
 		oblast.TableNameIs("basic_records"),
 		oblast.PrimaryKeyIs("id"),
-	))(t)
+	)
 
 	expectedError := `sql: Scan error on column index 1, name "created_at": unsupported Scan, storing driver.Value type string into type *time.Time`
 

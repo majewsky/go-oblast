@@ -127,6 +127,74 @@ func TestQueryConstructionBasic(t *testing.T) {
 	})
 }
 
+func TestQueryConstructionWithOnlyPrimaryKey(t *testing.T) {
+	type relation struct {
+		FooID int64 `db:"foo_id"`
+		BarID int64 `db:"bar_id"`
+	}
+	opts := planOpts{
+		TableName:             "foo_bar_relations",
+		PrimaryKeyColumnNames: []string{"foo_id", "bar_id"},
+	}
+
+	t.Run("MysqlDialect", func(t *testing.T) {
+		plan, err := buildPlan(reflect.TypeFor[relation](), MysqlDialect(), opts)
+		if err != nil {
+			t.Error(err)
+		}
+		assert.Equal(t, plan.Select.Query, "SELECT `foo_id`, `bar_id` FROM `foo_bar_relations` WHERE ")
+		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
+		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}})
+		assert.Equal(t, plan.Insert.Query, "INSERT INTO `foo_bar_relations` (`foo_id`, `bar_id`) VALUES (?, ?)")
+		assert.DeepEqual(t, plan.Insert.ArgumentIndexes, [][]int{{0}, {1}})
+		assert.DeepEqual(t, plan.Insert.ScanIndexes, nil)
+		assert.Equal(t, plan.Update.Query, "")
+		assert.DeepEqual(t, plan.Update.ArgumentIndexes, nil)
+		assert.DeepEqual(t, plan.Update.ScanIndexes, nil)
+		assert.Equal(t, plan.Delete.Query, "DELETE FROM `foo_bar_relations` WHERE `foo_id` = ? AND `bar_id` = ?")
+		assert.DeepEqual(t, plan.Delete.ArgumentIndexes, [][]int{{0}, {1}})
+		assert.DeepEqual(t, plan.Delete.ScanIndexes, nil)
+	})
+
+	t.Run("PostgresDialect", func(t *testing.T) {
+		plan, err := buildPlan(reflect.TypeFor[relation](), PostgresDialect(), opts)
+		if err != nil {
+			t.Error(err)
+		}
+		assert.Equal(t, plan.Select.Query, `SELECT "foo_id", "bar_id" FROM "foo_bar_relations" WHERE `)
+		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
+		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}})
+		assert.Equal(t, plan.Insert.Query, `INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES ($1, $2)`)
+		assert.DeepEqual(t, plan.Insert.ArgumentIndexes, [][]int{{0}, {1}})
+		assert.DeepEqual(t, plan.Insert.ScanIndexes, nil)
+		assert.Equal(t, plan.Update.Query, "")
+		assert.DeepEqual(t, plan.Update.ArgumentIndexes, nil)
+		assert.DeepEqual(t, plan.Update.ScanIndexes, nil)
+		assert.Equal(t, plan.Delete.Query, `DELETE FROM "foo_bar_relations" WHERE "foo_id" = $1 AND "bar_id" = $2`)
+		assert.DeepEqual(t, plan.Delete.ArgumentIndexes, [][]int{{0}, {1}})
+		assert.DeepEqual(t, plan.Delete.ScanIndexes, nil)
+	})
+
+	t.Run("SqliteDialect", func(t *testing.T) {
+		plan, err := buildPlan(reflect.TypeFor[relation](), SqliteDialect(), opts)
+		if err != nil {
+			t.Error(err)
+		}
+		assert.Equal(t, plan.Select.Query, `SELECT "foo_id", "bar_id" FROM "foo_bar_relations" WHERE `)
+		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
+		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}})
+		assert.Equal(t, plan.Insert.Query, `INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES (?, ?)`)
+		assert.DeepEqual(t, plan.Insert.ArgumentIndexes, [][]int{{0}, {1}})
+		assert.DeepEqual(t, plan.Insert.ScanIndexes, nil)
+		assert.Equal(t, plan.Update.Query, "")
+		assert.DeepEqual(t, plan.Update.ArgumentIndexes, nil)
+		assert.DeepEqual(t, plan.Update.ScanIndexes, nil)
+		assert.Equal(t, plan.Delete.Query, `DELETE FROM "foo_bar_relations" WHERE "foo_id" = ? AND "bar_id" = ?`)
+		assert.DeepEqual(t, plan.Delete.ArgumentIndexes, [][]int{{0}, {1}})
+		assert.DeepEqual(t, plan.Delete.ScanIndexes, nil)
+	})
+}
+
 func TestQueryConstructionWithoutPrimaryKey(t *testing.T) {
 	type relation struct {
 		FooID int64 `db:"foo_id"`
@@ -336,4 +404,71 @@ func TestQueryConstructionWithMultipleAutoColumns(t *testing.T) {
 		_, err := NewStore[record](SqliteDialect())
 		assert.Equal(t, err.Error(), `cannot use type oblast.record for queries: multiple columns are marked as auto-filled (id, created_at), but this SQL dialect only supports at most one per table`)
 	})
+}
+
+func TestPlanErrorCases(t *testing.T) {
+	type recordUsedViaPointer struct {
+		ID int64 `db:"id"`
+	}
+
+	_, err := NewStore[*recordUsedViaPointer](SqliteDialect())
+	assert.Equal(t, err.Error(), `cannot use type *oblast.recordUsedViaPointer for queries: `+
+		`expected struct type, but got kind "ptr"`)
+
+	type recordWithDuplicateTags struct {
+		Foo int64 `db:"Bar"`
+		Qux float64
+		Bar string
+	}
+	_, err = NewStore[recordWithDuplicateTags](SqliteDialect())
+	assert.Equal(t, err.Error(), `cannot use type oblast.recordWithDuplicateTags for queries: `+
+		"duplicate tag `db:\"Bar\"` on field index [0], but also on field index [2]")
+
+	type recordWithUnusedTransparentStruct struct {
+		ID        int64
+		CreatedAt time.Time // has no exported fields!
+	}
+	_, err = NewStore[recordWithUnusedTransparentStruct](SqliteDialect())
+	assert.Equal(t, err.Error(), `cannot use type oblast.recordWithUnusedTransparentStruct for queries: `+
+		"field \"CreatedAt\" of type time.Time does not contain any mapped fields (to map this whole field to a DB column, add an explicit `db:\"...\"` tag)")
+
+	type recordWithPKButNoTableName struct {
+		ID   int64  `db:"id"`
+		Name string `db:"name"`
+	}
+	_, err = NewStore[recordWithPKButNoTableName](SqliteDialect(),
+		PrimaryKeyIs("id"),
+	)
+	assert.Equal(t, err.Error(), `cannot use type oblast.recordWithPKButNoTableName for queries: `+
+		`cannot declare a primary key without also providing the TableNameIs option`)
+
+	type recordWithUnknownPK struct {
+		ID   int64  `db:"id"`
+		Name string `db:"name"`
+	}
+	_, err = NewStore[recordWithUnknownPK](SqliteDialect(),
+		TableNameIs("records"),
+		PrimaryKeyIs("record_id"),
+	)
+	assert.Equal(t, err.Error(), `cannot use type oblast.recordWithUnknownPK for queries: `+
+		"no field has tag `db:\"record_id\"`, but a field of this name was declared in the primary key")
+
+	type recordWithNonintegerAutoKey struct {
+		CreatedAt time.Time `db:"created_at,auto"`
+		Name      string    `db:"name"`
+	}
+	_, err = NewStore[recordWithNonintegerAutoKey](SqliteDialect(),
+		TableNameIs("records"),
+	)
+	assert.Equal(t, err.Error(), `cannot use type oblast.recordWithNonintegerAutoKey for queries: `+
+		`column "created_at" is marked as auto-filled, but this SQL dialect only supports auto-filling struct fields with integer types`)
+
+	type recordWithWeirdTagOption struct {
+		ID          int64  `db:",auto"`
+		Name        string `db:",unique"`
+		Description string
+	}
+	_, err = NewStore[recordWithWeirdTagOption](SqliteDialect())
+	assert.Equal(t, err.Error(), `cannot use type oblast.recordWithWeirdTagOption for queries: `+
+		"unknown option `db:\",unique\"` on field \"Name\"")
 }

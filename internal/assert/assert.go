@@ -12,7 +12,8 @@ import (
 func Equal[V comparable](t testing.TB, actual, expected V) {
 	t.Helper()
 	if actual != expected {
-		t.Errorf("expected %#v, but got %#v", expected, actual)
+		t.Errorf("expected %#v", expected)
+		t.Errorf(" but got %#v", actual)
 	}
 }
 
@@ -20,7 +21,8 @@ func Equal[V comparable](t testing.TB, actual, expected V) {
 func DeepEqual[V any](t testing.TB, actual, expected V) {
 	t.Helper()
 	if !reflect.DeepEqual(actual, expected) {
-		t.Errorf("expected %#v, but got %#v", expected, actual)
+		t.Errorf("expected %#v", expected)
+		t.Errorf(" but got %#v", actual)
 	}
 }
 
@@ -32,7 +34,8 @@ func SliceEqual[V comparable](t testing.TB, actual []V, expected ...V) {
 	}
 	for idx := range actual {
 		if actual[idx] != expected[idx] {
-			t.Errorf("element %d: expected %#v, but got %#v", idx, expected[idx], actual[idx])
+			t.Errorf("element %d: expected %#v", idx, expected[idx])
+			t.Errorf("element %d:  but got %#v", idx, actual[idx])
 		}
 	}
 }
@@ -45,7 +48,8 @@ func SliceDeepEqual[V any](t testing.TB, actual []V, expected ...V) {
 	}
 	for idx := range actual {
 		if !reflect.DeepEqual(actual[idx], expected[idx]) {
-			t.Errorf("element %d: expected %#v, but got %#v", idx, expected[idx], actual[idx])
+			t.Errorf("element %d: expected %#v", idx, expected[idx])
+			t.Errorf("element %d:  but got %#v", idx, actual[idx])
 		}
 	}
 }
