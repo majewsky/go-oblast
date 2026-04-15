@@ -4,6 +4,7 @@
 package oblast
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"reflect"
@@ -63,44 +64,84 @@ func buildPlan(t reflect.Type, dialect Dialect, opts planOpts) (plan, error) {
 		IndexByColumnName:     make(map[string][]int),
 	}
 
-	// discover addressable fields in this type,
-	// collect information from markers and tags
-	for _, field := range reflect.VisibleFields(t) {
-		tags := strings.Split(strings.TrimSpace(field.Tag.Get("db")), ",")
+	var (
+		indexesOfOpaqueStructs            [][]int
+		indexesOfUnusedTransparentStructs [][]int
+	)
+	isWithin := func(fieldIndex, structIndex []int) bool {
+		// returns whether `structIndex` is a prefix of `fieldIndex` (i.e. whether the field is contained within the struct)
+		return len(fieldIndex) > len(structIndex) && slices.Equal(fieldIndex[0:len(structIndex)], structIndex)
+	}
 
-		switch {
-		case field.PkgPath != "":
-			// ignore unexported fields (otherwise reflect.Value.Interface() on the field would panic)
+	// discover addressable fields in this type, collect information from markers and tags
+	for _, field := range reflect.VisibleFields(t) {
+		// ignore unexported fields (otherwise reflect.Value.Interface() on the field would panic)
+		if field.PkgPath != "" {
 			continue
-		case field.Anonymous && field.Type.Kind() == reflect.Struct:
-			// for embedded struct fields, only consider their members, not the type itself, as a potential column
-			continue
-		default:
-			columnName, extraTags := tags[0], tags[1:]
-			if columnName == "-" {
+		}
+
+		// recurse into struct fields (i.e. ignore the struct itself and consider its members instead)
+		// unless the field itself has a `db:"..."` tag
+		if field.Type.Kind() == reflect.Struct || (field.Type.Kind() == reflect.Pointer && field.Type.Elem().Kind() == reflect.Struct) {
+			if field.Tag.Get("db") == "" {
+				indexesOfUnusedTransparentStructs = append(indexesOfUnusedTransparentStructs, field.Index)
 				continue
 			}
-			if columnName == "" {
-				columnName = field.Name
-			}
-			if otherIndex := p.IndexByColumnName[columnName]; otherIndex != nil {
-				return plan{}, fmt.Errorf(
-					"duplicate tag `db:%q` on field index %v, but also on field index %v",
-					columnName, otherIndex, field.Index,
-				)
-			}
-			p.IndexByColumnName[columnName] = field.Index
-			p.AllColumnNames = append(p.AllColumnNames, columnName)
+			indexesOfOpaqueStructs = append(indexesOfOpaqueStructs, field.Index)
+		}
 
-			for _, tag := range extraTags {
-				switch tag {
-				case "auto":
-					p.AutoColumnNames = append(p.AutoColumnNames, columnName)
-				default:
-					return plan{}, fmt.Errorf("unknown tag `db:%q` on field index %v", ","+tag, field.Index)
-				}
+		// ignore fields that are within a struct type that is mapped as a whole
+		if slices.ContainsFunc(indexesOfOpaqueStructs, func(index []int) bool {
+			return isWithin(field.Index, index)
+		}) {
+			continue
+		}
+
+		// check `db:"..."` tag, ignore fields that are declared with column name "-"
+		tags := strings.Split(strings.TrimSpace(field.Tag.Get("db")), ",")
+		columnName, extraTags := cmp.Or(tags[0], field.Name), tags[1:]
+		if columnName == "-" {
+			continue
+		}
+
+		if otherIndex := p.IndexByColumnName[columnName]; otherIndex != nil {
+			return plan{}, fmt.Errorf(
+				"duplicate tag `db:%q` on field index %v, but also on field index %v",
+				columnName, otherIndex, field.Index,
+			)
+		}
+		p.IndexByColumnName[columnName] = field.Index
+		p.AllColumnNames = append(p.AllColumnNames, columnName)
+
+		// track whether transparent structs contain fields that are mapped
+	restartIteration:
+		for idx, index := range indexesOfUnusedTransparentStructs {
+			if isWithin(field.Index, index) {
+				indexesOfUnusedTransparentStructs = slices.Delete(indexesOfUnusedTransparentStructs, idx, idx+1)
+				goto restartIteration
 			}
 		}
+
+		for _, tag := range extraTags {
+			switch tag {
+			case "auto":
+				p.AutoColumnNames = append(p.AutoColumnNames, columnName)
+			default:
+				return plan{}, fmt.Errorf("unknown tag `db:%q` on field index %v", ","+tag, field.Index)
+			}
+		}
+	}
+
+	// validation: transparent structs need to have at least one of their members mapped
+	// (this property is most often violated when a user of a library-defined type is not aware that this type is a struct under the hood,
+	// e.g. a field like "CreatedAt time.Time" needs to have a tag like `db:"created_at"`,
+	// otherwise nothing will be mapped because time.Time does not have any exported fields)
+	for _, index := range indexesOfUnusedTransparentStructs {
+		field := t.FieldByIndex(index)
+		return plan{}, fmt.Errorf(
+			"field %q of type %s does not contain any mapped fields (to map this entire field to a DB column, add an explicit `db:\"...\"` tag)",
+			field.Name, field.Type.String(),
+		)
 	}
 
 	// validation: defining a primary key only makes sense for records that map onto a single table

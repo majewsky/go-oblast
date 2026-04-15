@@ -58,13 +58,11 @@ func TestPlanFieldTraversal(t *testing.T) {
 	})
 }
 
-// TODO: test that, during Select(), assignment into embedded fields with pointer-to-struct type works (docs say that this might panic if we do not allocate into the pointer first)
-
 func TestQueryConstructionBasic(t *testing.T) {
 	type record struct {
 		ID          int64 `db:",auto"`
 		Description string
-		CreatedAt   time.Time
+		CreatedAt   time.Time `db:"CreatedAt"`
 	}
 	opts := planOpts{
 		TableName:             "basic_records",
@@ -199,7 +197,7 @@ func TestQueryConstructionWithoutPrimaryKey(t *testing.T) {
 func TestQueryConstructionImpossble(t *testing.T) {
 	type unstructuredData struct {
 		Foo int
-		Bar string
+		Bar *string
 	}
 	opts := planOpts{}
 

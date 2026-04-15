@@ -220,3 +220,4 @@ func TestSelectWithScanError(t *testing.T) {
 
 // TODO: test error capture during Rows.Close()
 // TODO: check for maximum test coverage in select.go
+// TODO: test that, during Select(), assignment into embedded fields with pointer-to-struct type works (docs say that this might panic if we do not allocate into the pointer first)

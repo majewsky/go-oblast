@@ -6,6 +6,9 @@
 //
 // # Usage pattern
 //
+// Oblast can load or store any struct type by matching individual fields to column names (on load) or query arguments (on store).
+// Struct types that are suitable for this kind of mapping are called "record types" throughout this package documentation.
+//
 // To use this library, first declare a record type, and create a [Store] for it once to analyze the type and prepare the respective OLTP queries:
 //
 //	type LogEntry struct {
@@ -38,12 +41,71 @@
 //		}
 //		fmt.Printf("there are %d log entries so far", len(allEntries))
 //	}
+//
+// # Mapping rules for record types
+//
+// If the database column has a different name (or casing, e.g. "id" vs. "ID") than the field name, provide it in the field tag "db".
+// The field tag may also contain additional options, separated from the column name by commas.
+// To have Oblast ignore a field, either make it private or declare its column name as "-".
+// For example:
+//
+//	type Example struct {
+//		FirstValue  string         `db:"first_value"` // maps to DB column "first_value"
+//		SecondValue string         // maps to DB column "SecondValue"
+//		ThirdValue  string         `db:"third_value,auto"` // maps to DB column "third_value" with "auto" option
+//		FourthValue string         `db:",auto"`            // maps to DB column "FourthValue" with "auto" option
+//		Cache       map[string]any `db:"-"`                // ignored by Oblast because of column name "-"
+//		action      func()         // ignored by Oblast because field is private
+//	}
+//
+// The following field options are understood:
+//   - "auto": During [Store.Insert], do not store this field's value. Instead, the database will auto-generate a value, which will be read back into the record. In SQL dialects that use [sql.Result.LastInsertId] for this (as opposed to a RETURNING clause), only at most one field per record type may have this option, and it must be of an integer type.
+//
+// It is possible to place mapped fields within sub-structs, including within embedded types.
+// This is useful e.g. to avoid code duplication for database columns that are repeated across multiple types:
+//
+//	type Timestamps struct {
+//		CreatedAt time.Time  `db:"created_at"`
+//		UpdatedAt *time.Time `db:"updated_at"`
+//		DeletedAt *time.Time `db:"deleted_at"`
+//	}
+//
+//	type FooRecord struct {
+//		ID         int64  `db:"id,auto"`
+//		Name       string `db:"name"`
+//		Timestamps Timestamps
+//	}
+//	// ... and other struct types that use type Timestamps ...
+//
+// This behavior may be undesirable on custom struct types that implement [sql.Scanner] and/or [driver.Valuer], or are understood by a [driver.NamedValueChecker] set up by your SQL driver.
+// To keep Oblast from recursing into struct types and mapping their fields, provide an explicit `db:"..."` tag on them:
+//
+//	type GeoPoint struct {
+//		Longitude, Latitude int
+//	}
+//	func (p *GeoPoint) Scan(src any) error {...}
+//	func (p GeoPoint) Value() (driver.Value, error) {...}
+//
+//	type Event struct {
+//		ID          int64 `db:",auto"`
+//		Description string
+//		Time        time.Time
+//		// explicit tag ensures that Location.Longitude and Location.Latitude are not mapped individually
+//		Location    GeoPoint `db:"Location"`
+//	}
 package oblast // import "go.xyrillian.de/oblast"
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"reflect"
+)
+
+var (
+	// the following types appear in docstring links
+	_ sql.Scanner              = nil
+	_ driver.NamedValueChecker = nil
 )
 
 // PlanOption is an option that can be given to NewStore() to influence query planning for a certain type of record.
@@ -87,27 +149,6 @@ type Store[R any] struct {
 
 // NewStore initializes a store for record type R.
 // Returns an error if R is not a struct type.
-//
-// For the purpose of loading and storing records (i.e. instances of type R) into the database,
-// this function establishes a mapping between fields of type R and database columns by inspecting the "db" tag.
-// For example:
-//
-//	type MyRecord struct {
-//		ID     int64  `db:"record_id,auto"`
-//		Foo    string `db:"foo"`
-//		Bar    string
-//		Cache  map[string]any `db:"-"`
-//		action func()
-//	}
-//
-// In this type:
-//   - The fields "ID" and "Foo" correspond to the database columns "record_id" and "foo" because of the declaration in the "db" tag.
-//   - The field "Bar" corresponds to the database column "Bar" because, when no "db" tag is given, the column name is set equal to the field name.
-//   - The field "Cache" is not mapped to any database column because it is declared with a "db" tag of "-". Loads and stores will ignore it.
-//   - The field "action" is private, so loads and stores will ignore it, too.
-//
-// Besides the declaration of a column name, the following extra tags are understood (as a comma-separated list following the column name):
-//   - "auto": During [Store.Insert], do not store this field's value. Instead, the database will auto-generate a value, which will be read back into the record.
 func NewStore[R any](dialect Dialect, opts ...PlanOption) (Store[R], error) {
 	var popts planOpts
 	for _, opt := range opts {
