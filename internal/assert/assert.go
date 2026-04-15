@@ -36,3 +36,16 @@ func SliceEqual[V comparable](t testing.TB, actual []V, expected ...V) {
 		}
 	}
 }
+
+// SliceDeepEqual is a test assertion.
+func SliceDeepEqual[V any](t testing.TB, actual []V, expected ...V) {
+	t.Helper()
+	if len(actual) != len(expected) {
+		t.Errorf("length mismatch: expected %#v, but got %#v", expected, actual)
+	}
+	for idx := range actual {
+		if !reflect.DeepEqual(actual[idx], expected[idx]) {
+			t.Errorf("element %d: expected %#v, but got %#v", idx, expected[idx], actual[idx])
+		}
+	}
+}

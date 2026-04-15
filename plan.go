@@ -21,8 +21,10 @@ type plan struct {
 	PrimaryKeyColumnNames []string // from info.PrimaryKeyIs marker (if any)
 	AutoColumnNames       []string // subset of AllColumnNames where field has `,auto` marker
 
-	// Argument for reflect.Value.FieldByIndex() for each column name.
+	// Field index (i.e. argument for reflect.Value.FieldByIndex()) for each column name.
 	IndexByColumnName map[string][]int
+	// Indexes of pointer-typed fields that need to be initialized before scanning into this type.
+	IndexesOfTransparentPointerStructs [][]int
 
 	// In dialects with UsesLastInsertID() == true, whether the ID column must be written with reflect.Value.SetInt() or reflect.Value.SetUint().
 	FillIDWithSetUint bool
@@ -85,6 +87,11 @@ func buildPlan(t reflect.Type, dialect Dialect, opts planOpts) (plan, error) {
 		if field.Type.Kind() == reflect.Struct || (field.Type.Kind() == reflect.Pointer && field.Type.Elem().Kind() == reflect.Struct) {
 			if field.Tag.Get("db") == "" {
 				indexesOfUnusedTransparentStructs = append(indexesOfUnusedTransparentStructs, field.Index)
+				if field.Type.Kind() == reflect.Pointer {
+					// remember that, when scanning into a record of type `t`, we need to write a non-nil zeroed struct into this field
+					// to enable taking an address of its mapped member fields
+					p.IndexesOfTransparentPointerStructs = append(p.IndexesOfTransparentPointerStructs, field.Index)
+				}
 				continue
 			}
 			indexesOfOpaqueStructs = append(indexesOfOpaqueStructs, field.Index)

@@ -218,6 +218,79 @@ func TestSelectWithScanError(t *testing.T) {
 	})
 }
 
+func TestSelectIntoEmbeddedTypes(t *testing.T) {
+	md := mock.NewDriver()
+	db := sql.OpenDB(md)
+
+	type HasCreatedAt struct {
+		CreatedAt time.Time `db:"created_at"`
+	}
+	type HasUpdatedAt struct {
+		UpdatedAt *time.Time `db:"updated_at"`
+	}
+	type compositeRecord struct {
+		ID int64 `db:"id"`
+		HasCreatedAt
+		// This test specifically wants to see that this field gets initialized
+		// whenever one of the Store.Select methods creates a compositeRecord instance.
+		*HasUpdatedAt
+	}
+	store := oblast.MustNewStore[compositeRecord](
+		oblast.SqliteDialect(),
+		oblast.TableNameIs("composite_records"),
+		oblast.PrimaryKeyIs("id"),
+	)
+
+	t.Run("using Store.Select", func(t *testing.T) {
+		md.ForQuery(`SELECT * FROM composite_records`).
+			ExpectQueryWithArgs(nil...).
+			AndReturnColumns("id", "created_at", "updated_at").
+			WithRow(1, time.Unix(1, 0), time.Unix(3, 0)).
+			WithRow(2, time.Unix(2, 0), nil)
+		records := must.Return(store.Select(db, `SELECT * FROM composite_records`))(t)
+		assert.SliceDeepEqual(t, records,
+			compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}},
+			compositeRecord{2, HasCreatedAt{time.Unix(2, 0)}, &HasUpdatedAt{nil}},
+		)
+	})
+
+	t.Run("using Store.SelectWhere", func(t *testing.T) {
+		md.ForQuery(`SELECT "id", "created_at", "updated_at" FROM "composite_records" WHERE TRUE`).
+			ExpectQueryWithArgs(nil...).
+			AndReturnColumns("id", "created_at", "updated_at").
+			WithRow(1, time.Unix(1, 0), time.Unix(3, 0)).
+			WithRow(2, time.Unix(2, 0), nil)
+		records := must.Return(store.SelectWhere(db, `TRUE`))(t)
+		assert.SliceDeepEqual(t, records,
+			compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}},
+			compositeRecord{2, HasCreatedAt{time.Unix(2, 0)}, &HasUpdatedAt{nil}},
+		)
+	})
+
+	t.Run("using Store.SelectOne", func(t *testing.T) {
+		md.ForQuery(`SELECT * FROM composite_records`).
+			ExpectQueryWithArgs(nil...).
+			AndReturnColumns("id", "created_at", "updated_at").
+			WithRow(1, time.Unix(1, 0), time.Unix(3, 0)).
+			WithRow(2, time.Unix(2, 0), nil)
+		record := must.Return(store.SelectOne(db, `SELECT * FROM composite_records`))(t)
+		assert.DeepEqual(t, record,
+			compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}},
+		)
+	})
+
+	t.Run("using Store.SelectOneWhere", func(t *testing.T) {
+		md.ForQuery(`SELECT "id", "created_at", "updated_at" FROM "composite_records" WHERE TRUE`).
+			ExpectQueryWithArgs(nil...).
+			AndReturnColumns("id", "created_at", "updated_at").
+			WithRow(1, time.Unix(1, 0), time.Unix(3, 0)).
+			WithRow(2, time.Unix(2, 0), nil)
+		record := must.Return(store.SelectOneWhere(db, `TRUE`))(t)
+		assert.DeepEqual(t, record,
+			compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}},
+		)
+	})
+}
+
 // TODO: test error capture during Rows.Close()
 // TODO: check for maximum test coverage in select.go
-// TODO: test that, during Select(), assignment into embedded fields with pointer-to-struct type works (docs say that this might panic if we do not allocate into the pointer first)
