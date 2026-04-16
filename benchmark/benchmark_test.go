@@ -17,7 +17,11 @@ import (
 	"go.xyrillian.de/oblast/internal/must"
 )
 
-const totalRecordCountForSelect = 10000
+var (
+	totalRecordCountForSelect = 10000
+	batchSizesForSelect       = []int{1, 10, 100, 1000}
+	batchSizesForInsertDelete = []int{1, 2, 4, 8, 16, 100}
+)
 
 func makeTestDB(t testing.TB, recordCount int) *sql.DB {
 	db := must.Return(sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())))(t)
@@ -51,8 +55,8 @@ func BenchmarkSelectMany(b *testing.B) {
 
 	// test with different sizes of resultsets (N=1 is an OLTP-like workload,
 	// then the larger N lean more towards the OLAP side of things)
-	for selectedRecordCount := 1; selectedRecordCount < totalRecordCountForSelect; selectedRecordCount *= 10 {
-		b.Run("N="+strconv.Itoa(selectedRecordCount), func(b *testing.B) {
+	for _, batchSize := range batchSizesForSelect {
+		b.Run("N="+strconv.Itoa(batchSize), func(b *testing.B) {
 			// prepare the functions that will be benched
 			store, err := oblast.NewStore[OblastEntry](
 				oblast.SqliteDialect(),
@@ -63,23 +67,23 @@ func BenchmarkSelectMany(b *testing.B) {
 				b.Fatal(err)
 			}
 			gdb := gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
-			partialQuery := `id < ` + strconv.Itoa(selectedRecordCount)
+			partialQuery := `id < ` + strconv.Itoa(batchSize)
 			query := `SELECT * FROM entries WHERE ` + partialQuery
 
 			selectWithOblast := func(b *testing.B) {
 				records := must.Return(store.Select(db, query))(b)
-				assert.Equal(b, len(records), selectedRecordCount)
+				assert.Equal(b, len(records), batchSize)
 			}
 
 			selectWithOblastWhere := func(b *testing.B) {
 				records := must.Return(store.SelectWhere(db, partialQuery))(b)
-				assert.Equal(b, len(records), selectedRecordCount)
+				assert.Equal(b, len(records), batchSize)
 			}
 
 			selectWithGorp := func(b *testing.B) {
 				var records []GorpEntry
 				_ = must.Return(gdb.Select(&records, query))(b)
-				assert.Equal(b, len(records), selectedRecordCount)
+				assert.Equal(b, len(records), batchSize)
 			}
 
 			selectWithSqlite := func(b *testing.B) {
@@ -96,7 +100,7 @@ func BenchmarkSelectMany(b *testing.B) {
 					}
 				}
 				must.Succeed(b, rows.Close())
-				assert.Equal(b, count, selectedRecordCount)
+				assert.Equal(b, count, batchSize)
 			}
 
 			// run once to prewarm caches
@@ -108,22 +112,22 @@ func BenchmarkSelectMany(b *testing.B) {
 
 			// run actual benchmark
 			b.Run("via Gorp using Select", func(b *testing.B) {
-				for range b.N {
+				for b.Loop() {
 					selectWithGorp(b)
 				}
 			})
 			b.Run("via Oblast using Select", func(b *testing.B) {
-				for range b.N {
+				for b.Loop() {
 					selectWithOblast(b)
 				}
 			})
 			b.Run("via Oblast using SelectWhere", func(b *testing.B) {
-				for range b.N {
+				for b.Loop() {
 					selectWithOblastWhere(b)
 				}
 			})
 			b.Run("just SQLite", func(b *testing.B) {
-				for range b.N {
+				for b.Loop() {
 					selectWithSqlite(b)
 				}
 			})
@@ -184,28 +188,28 @@ func BenchmarkSelectOne(b *testing.B) {
 
 	// run actual benchmark
 	b.Run("via Gorp using SelectOne", func(b *testing.B) {
-		for range b.N {
+		for b.Loop() {
 			selectWithGorp(b)
 		}
 	})
 	b.Run("via Oblast using SelectOne", func(b *testing.B) {
-		for range b.N {
+		for b.Loop() {
 			selectWithOblast(b)
 		}
 	})
 	b.Run("via Oblast using SelectOneWhere", func(b *testing.B) {
-		for range b.N {
+		for b.Loop() {
 			selectWithOblastWhere(b)
 		}
 	})
 	b.Run("just SQLite", func(b *testing.B) {
-		for range b.N {
+		for b.Loop() {
 			selectWithSqlite(b)
 		}
 	})
 }
 
-func BenchmarkInsertAndDeleteOne(b *testing.B) {
+func BenchmarkInsertAndDelete(b *testing.B) {
 	db := makeTestDB(b, 0)
 
 	// prepare the functions that will be benched
@@ -220,47 +224,89 @@ func BenchmarkInsertAndDeleteOne(b *testing.B) {
 	gdb := gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
 	gdb.AddTableWithName(GorpEntry{}, "entries").SetKeys(true, "id")
 
-	insertAndDeleteWithOblast := func(b *testing.B) {
-		record := OblastEntry{Message: "hello"}
-		records := must.Return(store.Insert(db, record))(b)
-		record = records[0]
-		if record.ID == 0 {
-			b.Errorf("ID was not filled!")
-		}
-		must.Succeed(b, store.Delete(db, record))
-	}
-	insertAndDeleteWithGorp := func(b *testing.B) {
-		record := GorpEntry{Message: "hello"}
-		must.Succeed(b, gdb.Insert(&record))
-		if record.ID == 0 {
-			b.Errorf("ID was not filled!")
-		}
-		_ = must.Return(gdb.Delete(&record))(b)
-	}
-	insertAndDeleteWithSqlite := func(b *testing.B) {
-		result := must.Return(db.Exec(`INSERT INTO entries (message) VALUES (?)`, "hello"))(b)
-		id := must.Return(result.LastInsertId())(b)
-		_ = must.Return(db.Exec(`DELETE FROM entries WHERE id = ?`, id))(b)
-	}
+	// test with different amounts of records
+	for _, batchSize := range batchSizesForInsertDelete {
+		b.Run("N="+strconv.Itoa(batchSize), func(b *testing.B) {
+			// prepare the functions that will be benched
+			insertAndDeleteWithOblast := func(b *testing.B) {
+				records := make([]OblastEntry, batchSize)
+				for idx := range records {
+					records[idx] = OblastEntry{Message: "hello"}
+				}
+				records = must.Return(store.Insert(db, records...))(b)
+				for _, r := range records {
+					if r.ID == 0 {
+						b.Errorf("ID was not filled!")
+					}
+				}
+				must.Succeed(b, store.Delete(db, records...))
+			}
 
-	// run once to prewarm caches
-	insertAndDeleteWithOblast(b)
-	insertAndDeleteWithGorp(b)
+			insertAndDeleteWithGorp := func(b *testing.B) {
+				records := make([]any, batchSize)
+				for idx := range records {
+					records[idx] = &GorpEntry{Message: "hello"}
+				}
+				must.Succeed(b, gdb.Insert(records...))
+				for _, r := range records {
+					if r.(*GorpEntry).ID == 0 {
+						b.Errorf("ID was not filled!")
+					}
+				}
+				_ = must.Return(gdb.Delete(records...))(b)
+			}
 
-	b.Run("via Gorp", func(b *testing.B) {
-		for range b.N {
-			insertAndDeleteWithGorp(b)
-		}
-	})
-	b.Run("via Oblast", func(b *testing.B) {
-		// TODO: extremely bad results for the insert/delete benchmark -> investigate
-		for range b.N {
+			insertAndDeleteWithStraightSqlite := func(b *testing.B) {
+				ids := make([]int64, batchSize)
+				for idx := range ids {
+					result := must.Return(db.Exec(`INSERT INTO entries (message) VALUES (?)`, "hello"))(b)
+					ids[idx] = must.Return(result.LastInsertId())(b)
+				}
+				for _, id := range ids {
+					_ = must.Return(db.Exec(`DELETE FROM entries WHERE id = ?`, id))(b)
+				}
+			}
+
+			insertAndDeleteWithPreparedSqlite := func(b *testing.B) {
+				ids := make([]int64, batchSize)
+				stmtInsert := must.Return(db.Prepare(`INSERT INTO entries (message) VALUES (?)`))(b)
+				defer stmtInsert.Close()
+				for idx := range ids {
+					result := must.Return(stmtInsert.Exec("hello"))(b)
+					ids[idx] = must.Return(result.LastInsertId())(b)
+				}
+				stmtDelete := must.Return(db.Prepare(`DELETE FROM entries WHERE id = ?`))(b)
+				defer stmtDelete.Close()
+				for _, id := range ids {
+					_ = must.Return(stmtDelete.Exec(id))(b)
+				}
+			}
+
+			// run once to prewarm caches
 			insertAndDeleteWithOblast(b)
-		}
-	})
-	b.Run("just SQLite", func(b *testing.B) {
-		for range b.N {
-			insertAndDeleteWithSqlite(b)
-		}
-	})
+			insertAndDeleteWithGorp(b)
+
+			b.Run("via Gorp", func(b *testing.B) {
+				for b.Loop() {
+					insertAndDeleteWithGorp(b)
+				}
+			})
+			b.Run("via Oblast", func(b *testing.B) {
+				// TODO: extremely bad results for the insert/delete benchmark -> investigate
+				for b.Loop() {
+					insertAndDeleteWithOblast(b)
+				}
+			})
+			b.Run("just straight SQLite", func(b *testing.B) {
+				for b.Loop() {
+					insertAndDeleteWithStraightSqlite(b)
+				}
+			})
+			b.Run("just prepared SQLite", func(b *testing.B) {
+				for b.Loop() {
+					insertAndDeleteWithPreparedSqlite(b)
+				}
+			})
+		})
+	}
 }
