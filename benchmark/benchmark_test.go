@@ -292,7 +292,6 @@ func BenchmarkInsertAndDelete(b *testing.B) {
 				}
 			})
 			b.Run("via Oblast", func(b *testing.B) {
-				// TODO: extremely bad results for the insert/delete benchmark -> investigate
 				for b.Loop() {
 					insertAndDeleteWithOblast(b)
 				}

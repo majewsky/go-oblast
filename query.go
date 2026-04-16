@@ -4,10 +4,23 @@
 package oblast
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"reflect"
 )
+
+// PrepareThreshold is a tuning parameter for the strategy used by all methods of [Store] operating on batches of records provided by the caller
+// (specifically, [Store.Insert], [Store.Update] and [Store.Delete]).
+//
+// For large amounts of records, it is obviously advantageous to build a prepared statement for the one query that will be used repeatedly on all of them.
+// However, building a prepared statement is associated with some amount of bookkeeping on the level of the database/sql library.
+// When operating on individual records or small amounts of records at a time (that is, in OLTP rather than OLAP workloads), this overhead becomes a measurable performance burden.
+//
+// This tuning parameter defines the minimum number of records that will justify maintaining a prepared statement.
+// Our benchmarking with the mattn/go-sqlite3 driver (and last checked with Go 1.26.2 on x86_64) indicates that this becomes a worthwhile investment at 8 or more records, so this is our default.
+// If your benchmarking indicates a different tradeoff depending on your choice of Go version or SQL driver, you may adjust this variable accordingly.
+var PrepareThreshold int = 8
 
 // Insert executes an SQL INSERT statement for each of the provided records.
 //
@@ -35,13 +48,17 @@ func (s Store[R]) Insert(db Handle, records ...R) (returnedRecords []R, returned
 		scanSlots = make([]any, len(scanIndexes))
 	}
 
-	stmt, err := db.Prepare(s.plan.Insert.Query)
-	if err != nil {
-		return nil, fmt.Errorf("during Prepare(): %w", err)
+	var stmt *sql.Stmt
+	if len(records) >= PrepareThreshold {
+		var err error
+		stmt, err = db.Prepare(s.plan.Insert.Query)
+		if err != nil {
+			return nil, fmt.Errorf("during Prepare(): %w", err)
+		}
+		defer func() {
+			returnedError = mergeCloseError("Stmt", returnedError, stmt.Close())
+		}()
 	}
-	defer func() {
-		returnedError = mergeCloseError("Stmt", returnedError, stmt.Close())
-	}()
 
 	for idx := range records {
 		v := reflect.ValueOf(&records[idx]).Elem()
@@ -50,7 +67,15 @@ func (s Store[R]) Insert(db Handle, records ...R) (returnedRecords []R, returned
 		}
 
 		if s.dialect.UsesLastInsertID() {
-			result, err := stmt.Exec(argumentSlots...)
+			var (
+				result sql.Result
+				err    error
+			)
+			if stmt == nil {
+				result, err = db.Exec(s.plan.Insert.Query, argumentSlots...)
+			} else {
+				result, err = stmt.Exec(argumentSlots...)
+			}
 			if err != nil {
 				return nil, fmt.Errorf("during Exec() for record with idx = %d: %w", idx, err)
 			}
@@ -80,7 +105,7 @@ func (s Store[R]) Insert(db Handle, records ...R) (returnedRecords []R, returned
 	return records, nil
 }
 
-// TODO: update
+// TODO: Store.Update
 
 // Delete executes an SQL DELETE statement for each of the provided records, using their primary keys to locate the respective table rows.
 //
@@ -99,20 +124,29 @@ func (s Store[R]) Delete(db Handle, records ...R) (returnedError error) {
 		argumentSlots   = make([]any, len(argumentIndexes))
 	)
 
-	stmt, err := db.Prepare(s.plan.Delete.Query)
-	if err != nil {
-		return fmt.Errorf("during Prepare(): %w", err)
+	var stmt *sql.Stmt
+	if len(records) >= PrepareThreshold {
+		var err error
+		stmt, err = db.Prepare(s.plan.Delete.Query)
+		if err != nil {
+			return fmt.Errorf("during Prepare(): %w", err)
+		}
+		defer func() {
+			returnedError = mergeCloseError("Stmt", returnedError, stmt.Close())
+		}()
 	}
-	defer func() {
-		returnedError = mergeCloseError("Stmt", returnedError, stmt.Close())
-	}()
 
 	for idx, r := range records {
 		v := reflect.ValueOf(&r).Elem()
 		for idx, index := range argumentIndexes {
 			argumentSlots[idx] = v.FieldByIndex(index).Addr().Interface()
 		}
-		_, err := stmt.Exec(argumentSlots...)
+		var err error
+		if stmt == nil {
+			_, err = db.Exec(s.plan.Delete.Query, argumentSlots...)
+		} else {
+			_, err = stmt.Exec(argumentSlots...)
+		}
 		if err != nil {
 			return fmt.Errorf("during Exec() for record with idx = %d: %w", idx, err)
 		}
