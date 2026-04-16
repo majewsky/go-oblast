@@ -222,7 +222,8 @@ func BenchmarkInsertAndDeleteOne(b *testing.B) {
 
 	insertAndDeleteWithOblast := func(b *testing.B) {
 		record := OblastEntry{Message: "hello"}
-		must.Succeed(b, store.Insert(db, &record))
+		records := must.Return(store.Insert(db, record))(b)
+		record = records[0]
 		if record.ID == 0 {
 			b.Errorf("ID was not filled!")
 		}
