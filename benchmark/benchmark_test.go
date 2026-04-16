@@ -21,6 +21,7 @@ var (
 	totalRecordCountForSelect = 10000
 	batchSizesForSelect       = []int{1, 10, 100, 1000}
 	batchSizesForInsertDelete = []int{1, 2, 4, 8, 16, 100}
+	batchSizesForUpdate       = []int{1, 2, 4, 8, 16, 100}
 )
 
 func makeTestDB(t testing.TB, recordCount int) *sql.DB {
@@ -103,7 +104,7 @@ func BenchmarkSelectMany(b *testing.B) {
 				assert.Equal(b, count, batchSize)
 			}
 
-			// run once to prewarm caches
+			// run once to prewarm caches (if any)
 			selectWithOblast(b)
 			selectWithGorp(b)
 			if b.Failed() {
@@ -179,7 +180,7 @@ func BenchmarkSelectOne(b *testing.B) {
 		assert.Equal(b, id, int64(recordID))
 	}
 
-	// run once to prewarm caches
+	// run once to prewarm caches (if any)
 	selectWithOblast(b)
 	selectWithGorp(b)
 	if b.Failed() {
@@ -212,7 +213,6 @@ func BenchmarkSelectOne(b *testing.B) {
 func BenchmarkInsertAndDelete(b *testing.B) {
 	db := makeTestDB(b, 0)
 
-	// prepare the functions that will be benched
 	store, err := oblast.NewStore[OblastEntry](
 		oblast.SqliteDialect(),
 		oblast.TableNameIs("entries"),
@@ -282,7 +282,7 @@ func BenchmarkInsertAndDelete(b *testing.B) {
 				}
 			}
 
-			// run once to prewarm caches
+			// run once to prewarm caches (if any)
 			insertAndDeleteWithOblast(b)
 			insertAndDeleteWithGorp(b)
 
@@ -296,14 +296,117 @@ func BenchmarkInsertAndDelete(b *testing.B) {
 					insertAndDeleteWithOblast(b)
 				}
 			})
-			b.Run("just straight SQLite", func(b *testing.B) {
+			b.Run("just SQLite (straight)", func(b *testing.B) {
 				for b.Loop() {
 					insertAndDeleteWithStraightSqlite(b)
 				}
 			})
-			b.Run("just prepared SQLite", func(b *testing.B) {
+			b.Run("just SQLite (prepared)", func(b *testing.B) {
 				for b.Loop() {
 					insertAndDeleteWithPreparedSqlite(b)
+				}
+			})
+		})
+	}
+}
+
+func BenchmarkUpdate(b *testing.B) {
+	db := makeTestDB(b, 0)
+
+	store, err := oblast.NewStore[OblastEntry](
+		oblast.SqliteDialect(),
+		oblast.TableNameIs("entries"),
+		oblast.PrimaryKeyIs("id"),
+	)
+	if err != nil {
+		b.Fatal(err)
+	}
+	gdb := gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
+	gdb.AddTableWithName(GorpEntry{}, "entries").SetKeys(true, "id")
+
+	// test with different amounts of records
+	for _, batchSize := range batchSizesForUpdate {
+		b.Run("N="+strconv.Itoa(batchSize), func(b *testing.B) {
+			// prepare a bunch of records that we can update, in a reproducible way
+			_ = must.Return(db.Exec(`DELETE FROM entries`))
+			recordsForOblast := make([]OblastEntry, batchSize)
+			for idx := range recordsForOblast {
+				recordsForOblast[idx] = OblastEntry{Message: "hello"}
+			}
+			recordsForOblast = must.Return(store.Insert(db, recordsForOblast...))(b)
+			recordsForGorp := make([]any, batchSize)
+			for idx, r := range recordsForOblast {
+				recordsForGorp[idx] = new(GorpEntry(r))
+			}
+
+			// prepare the functions that will be benched
+			updateWithOblast := func(b *testing.B, message string) {
+				for idx := range recordsForOblast {
+					recordsForOblast[idx].Message = message
+				}
+				must.Succeed(b, store.Update(db, recordsForOblast...))
+			}
+			updateWithGorp := func(b *testing.B, message string) {
+				for _, r := range recordsForGorp {
+					r.(*GorpEntry).Message = message
+				}
+				_ = must.Return(gdb.Update(recordsForGorp...))(b)
+			}
+			updateWithStraightSqlite := func(b *testing.B, message string) {
+				for _, r := range recordsForOblast {
+					_ = must.Return(db.Exec(`UPDATE entries SET message = ? WHERE id = ?`, message, r.ID))(b)
+				}
+			}
+			updateWithPreparedSqlite := func(b *testing.B, message string) {
+				stmt := must.Return(db.Prepare(`UPDATE entries SET message = ? WHERE id = ?`))(b)
+				for _, r := range recordsForOblast {
+					_ = must.Return(stmt.Exec(message, r.ID))(b)
+				}
+			}
+			checkRecordsUpdated := func(b *testing.B, message string) {
+				var count int64
+				must.Succeed(b, db.QueryRow(`SELECT COUNT(*) FROM entries WHERE message = ?`, message).Scan(&count))
+				assert.Equal(b, count, int64(batchSize))
+			}
+
+			// run once to prewarm caches (if any)
+			updateWithGorp(b, "warming up")
+			updateWithOblast(b, "warming up")
+
+			b.Run("via Gorp", func(b *testing.B) {
+				idx := 0
+				for b.Loop() {
+					idx++
+					message := fmt.Sprintf("round %d", idx)
+					updateWithGorp(b, message)
+					checkRecordsUpdated(b, message)
+				}
+			})
+			b.Run("via Oblast", func(b *testing.B) {
+				idx := 0
+				for b.Loop() {
+					idx++
+					message := fmt.Sprintf("round %d", idx)
+					updateWithOblast(b, message)
+					checkRecordsUpdated(b, message)
+				}
+			})
+			b.Run("just SQLite (straight)", func(b *testing.B) {
+				idx := 0
+				for b.Loop() {
+					idx++
+					message := fmt.Sprintf("round %d", idx)
+					updateWithStraightSqlite(b, message)
+					checkRecordsUpdated(b, message)
+				}
+			})
+			b.Run("just SQLite (prepared)", func(b *testing.B) {
+				idx := 0
+				for b.Loop() {
+					idx++
+					message := fmt.Sprintf("round %d", idx)
+					updateWithPreparedSqlite(b, message)
+					checkRecordsUpdated(b, message)
 				}
 			})
 		})
