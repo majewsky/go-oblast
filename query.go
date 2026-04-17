@@ -63,7 +63,7 @@ func (s Store[R]) Insert(db Handle, records ...R) (returnedRecords []R, returned
 	for idx := range records {
 		v := reflect.ValueOf(&records[idx]).Elem()
 		for idx, index := range argumentIndexes {
-			argumentSlots[idx] = v.FieldByIndex(index).Addr().Interface()
+			argumentSlots[idx] = v.FieldByIndex(index).Interface()
 		}
 
 		if s.dialect.UsesLastInsertID() {
@@ -95,7 +95,12 @@ func (s Store[R]) Insert(db Handle, records ...R) (returnedRecords []R, returned
 			for idx, index := range scanIndexes {
 				scanSlots[idx] = v.FieldByIndex(index).Addr().Interface()
 			}
-			err := stmt.QueryRow(argumentSlots...).Scan(scanSlots...)
+			var err error
+			if stmt == nil {
+				err = db.QueryRow(s.plan.Insert.Query, argumentSlots...).Scan(scanSlots...)
+			} else {
+				err = stmt.QueryRow(argumentSlots...).Scan(scanSlots...)
+			}
 			if err != nil {
 				return nil, fmt.Errorf("during QueryRow() for record with idx = %d: %w", idx, err)
 			}

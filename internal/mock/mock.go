@@ -158,7 +158,17 @@ func (s *statement) Close() error {
 
 // NumInput implements the [driver.Stmt] interface.
 func (s *statement) NumInput() int {
-	return strings.Count(s.query, "?") // NOTE: extremely crude, but does the job for us
+	// option 1: when using SQLite dialect, count `?`
+	count := strings.Count(s.query, "?")
+	if count > 0 {
+		return count
+	}
+
+	// option 2: when using PostgreSQL dialect, find `$1`, `$2`, etc.
+	for strings.Contains(s.query, fmt.Sprintf("$%d", count+1)) {
+		count++
+	}
+	return count
 }
 
 // Exec implements the [driver.Stmt] interface.
