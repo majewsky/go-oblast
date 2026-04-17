@@ -22,6 +22,49 @@ import (
 // If your benchmarking indicates a different tradeoff depending on your choice of Go version or SQL driver, you may adjust this variable accordingly.
 var PrepareThreshold int = 8
 
+// preparedStatement behaves like sql.Stmt, but only uses *sql.Stmt when it is useful (see explanation above).
+type preparedStatement struct {
+	db    Handle
+	query string
+	stmt  *sql.Stmt // nil for input sizes below PrepareThreshold
+}
+
+// prepare behaves like [Handle.Prepare].
+func prepare(db Handle, query string, inputSize int) (preparedStatement, error) {
+	if inputSize < PrepareThreshold {
+		return preparedStatement{db, query, nil}, nil
+	}
+	stmt, err := db.Prepare(query)
+	if err != nil {
+		return preparedStatement{}, fmt.Errorf("during Prepare(): %w", err)
+	}
+	return preparedStatement{db, query, stmt}, nil
+}
+
+// Close behaves like [sql.Stmt.Close].
+func (s preparedStatement) Close() error {
+	if s.stmt == nil {
+		return nil
+	}
+	return s.stmt.Close()
+}
+
+// Exec behaves like [sql.Stmt.Exec].
+func (s preparedStatement) Exec(args ...any) (sql.Result, error) {
+	if s.stmt == nil {
+		return s.db.Exec(s.query, args...)
+	}
+	return s.stmt.Exec(args...)
+}
+
+// QueryRow behaves like [sql.Stmt.QueryRow].
+func (s preparedStatement) QueryRow(args ...any) *sql.Row {
+	if s.stmt == nil {
+		return s.db.QueryRow(s.query, args...)
+	}
+	return s.stmt.QueryRow(args...)
+}
+
 // Insert executes an SQL INSERT statement for each of the provided records.
 //
 // Fields that are declared with the "auto" tag will not be written into the DB,
@@ -48,17 +91,13 @@ func (s Store[R]) Insert(db Handle, records ...R) (returnedRecords []R, returned
 		scanSlots = make([]any, len(scanIndexes))
 	}
 
-	var stmt *sql.Stmt
-	if len(records) >= PrepareThreshold {
-		var err error
-		stmt, err = db.Prepare(s.plan.Insert.Query)
-		if err != nil {
-			return nil, fmt.Errorf("during Prepare(): %w", err)
-		}
-		defer func() {
-			returnedError = newIOError(returnedError, "Stmt.Close", stmt.Close())
-		}()
+	stmt, err := prepare(db, s.plan.Insert.Query, len(records))
+	if err != nil {
+		return nil, err
 	}
+	defer func() {
+		returnedError = newIOError(returnedError, "Stmt.Close", stmt.Close())
+	}()
 
 	for idx := range records {
 		v := reflect.ValueOf(&records[idx]).Elem()
@@ -67,15 +106,7 @@ func (s Store[R]) Insert(db Handle, records ...R) (returnedRecords []R, returned
 		}
 
 		if s.dialect.UsesLastInsertID() {
-			var (
-				result sql.Result
-				err    error
-			)
-			if stmt == nil {
-				result, err = db.Exec(s.plan.Insert.Query, argumentSlots...)
-			} else {
-				result, err = stmt.Exec(argumentSlots...)
-			}
+			result, err := stmt.Exec(argumentSlots...)
 			if err != nil {
 				return nil, fmt.Errorf("during Exec() for record with idx = %d: %w", idx, err)
 			}
@@ -95,12 +126,7 @@ func (s Store[R]) Insert(db Handle, records ...R) (returnedRecords []R, returned
 			for idx, index := range scanIndexes {
 				scanSlots[idx] = v.FieldByIndex(index).Addr().Interface()
 			}
-			var err error
-			if stmt == nil {
-				err = db.QueryRow(s.plan.Insert.Query, argumentSlots...).Scan(scanSlots...)
-			} else {
-				err = stmt.QueryRow(argumentSlots...).Scan(scanSlots...)
-			}
+			err := stmt.QueryRow(argumentSlots...).Scan(scanSlots...)
 			if err != nil {
 				return nil, fmt.Errorf("during QueryRow() for record with idx = %d: %w", idx, err)
 			}
@@ -124,32 +150,20 @@ func (s Store[R]) Update(db Handle, records ...R) (returnedError error) {
 		argumentSlots   = make([]any, len(argumentIndexes))
 	)
 
-	var stmt *sql.Stmt
-	if len(records) >= PrepareThreshold {
-		var err error
-		stmt, err = db.Prepare(s.plan.Update.Query)
-		if err != nil {
-			return fmt.Errorf("during Prepare(): %w", err)
-		}
-		defer func() {
-			returnedError = newIOError(returnedError, "Stmt.Close", stmt.Close())
-		}()
+	stmt, err := prepare(db, s.plan.Update.Query, len(records))
+	if err != nil {
+		return err
 	}
+	defer func() {
+		returnedError = newIOError(returnedError, "Stmt.Close", stmt.Close())
+	}()
 
 	for idx, r := range records {
 		v := reflect.ValueOf(&r).Elem()
 		for idx, index := range argumentIndexes {
 			argumentSlots[idx] = v.FieldByIndex(index).Addr().Interface()
 		}
-		var (
-			result sql.Result
-			err    error
-		)
-		if stmt == nil {
-			result, err = db.Exec(s.plan.Update.Query, argumentSlots...)
-		} else {
-			result, err = stmt.Exec(argumentSlots...)
-		}
+		result, err := stmt.Exec(argumentSlots...)
 		if err != nil {
 			return fmt.Errorf("during Exec() for record with idx = %d: %w", idx, err)
 		}
@@ -181,29 +195,20 @@ func (s Store[R]) Delete(db Handle, records ...R) (returnedError error) {
 		argumentSlots   = make([]any, len(argumentIndexes))
 	)
 
-	var stmt *sql.Stmt
-	if len(records) >= PrepareThreshold {
-		var err error
-		stmt, err = db.Prepare(s.plan.Delete.Query)
-		if err != nil {
-			return fmt.Errorf("during Prepare(): %w", err)
-		}
-		defer func() {
-			returnedError = newIOError(returnedError, "Stmt.Close", stmt.Close())
-		}()
+	stmt, err := prepare(db, s.plan.Delete.Query, len(records))
+	if err != nil {
+		return err
 	}
+	defer func() {
+		returnedError = newIOError(returnedError, "Stmt.Close", stmt.Close())
+	}()
 
 	for idx, r := range records {
 		v := reflect.ValueOf(&r).Elem()
 		for idx, index := range argumentIndexes {
 			argumentSlots[idx] = v.FieldByIndex(index).Addr().Interface()
 		}
-		var err error
-		if stmt == nil {
-			_, err = db.Exec(s.plan.Delete.Query, argumentSlots...)
-		} else {
-			_, err = stmt.Exec(argumentSlots...)
-		}
+		_, err := stmt.Exec(argumentSlots...)
 		if err != nil {
 			return fmt.Errorf("during Exec() for record with idx = %d: %w", idx, err)
 		}
