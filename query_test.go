@@ -135,3 +135,5 @@ func TestDeleteBasic(t *testing.T) {
 		})
 	}
 }
+
+// TODO: more test coverage for query.go

@@ -177,3 +177,5 @@ func selectOneWhere(db Handle, plan plan, v reflect.Value, partialQuery string, 
 	}
 	return db.QueryRow(query, args...).Scan(slots...)
 }
+
+// TODO: variant of SelectWhere/SelectOneWhere that has the full query precomputed
