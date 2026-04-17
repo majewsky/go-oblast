@@ -187,5 +187,5 @@ func (e MissingRecordError[R]) Error() string {
 	for idx, columnName := range e.plan.PrimaryKeyColumnNames {
 		keyDescs[idx] = fmt.Sprintf("%s = %#v", columnName, v.FieldByIndex(e.plan.IndexByColumnName[columnName]))
 	}
-	return fmt.Sprintf("could not UPDATE record that does not exist in the database: %s", strings.Join(keyDescs, ", "))
+	return "could not UPDATE record that does not exist in the database: " + strings.Join(keyDescs, ", ")
 }
