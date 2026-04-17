@@ -14,7 +14,7 @@ import (
 // according to the column names reported by the database as part of the result set.
 //
 // An error is returned if any column name in the result set does not correspond to an addressable field in R.
-func (s Store[R]) Select(db Handle, query string, args ...any) (result []R, returnedError error) {
+func (s Store[R]) Select(db Handle, query string, args ...any) ([]R, error) {
 	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
 	//       Any expression that does not depend on type R should be factored out into a reusable function.
 
@@ -22,10 +22,8 @@ func (s Store[R]) Select(db Handle, query string, args ...any) (result []R, retu
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		returnedError = mergeCloseError("Rows", returnedError, rows.Close())
-	}()
 
+	var result []R
 	slots := make([]any, len(indexes))
 	for rows.Next() {
 		var target R
@@ -36,7 +34,7 @@ func (s Store[R]) Select(db Handle, query string, args ...any) (result []R, retu
 		result = append(result, target)
 	}
 
-	return result, nil
+	return result, newIOError(err, "Rows.Err", rows.Err())
 }
 
 // SelectWhere is like [Store.Select], but you only provide the part of the SELECT query that comes after the WHERE.
@@ -52,7 +50,7 @@ func (s Store[R]) Select(db Handle, query string, args ...any) (result []R, retu
 // Besides a condition for the WHERE clause, it may contain additional clauses, such as ORDER BY or LIMIT.
 //
 // Returns an error if [NewStore] was called without the [TableNameIs] option, which is required to generate a query for this method.
-func (s Store[R]) SelectWhere(db Handle, partialQuery string, args ...any) (result []R, returnedError error) {
+func (s Store[R]) SelectWhere(db Handle, partialQuery string, args ...any) ([]R, error) {
 	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
 	//       Any expression that does not depend on type R should be factored out into a reusable function.
 
@@ -60,10 +58,8 @@ func (s Store[R]) SelectWhere(db Handle, partialQuery string, args ...any) (resu
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		returnedError = mergeCloseError("Rows", returnedError, rows.Close())
-	}()
 
+	var result []R
 	slots := make([]any, len(indexes))
 	for rows.Next() {
 		var target R
@@ -74,7 +70,7 @@ func (s Store[R]) SelectWhere(db Handle, partialQuery string, args ...any) (resu
 		result = append(result, target)
 	}
 
-	return result, nil
+	return result, newIOError(err, "Rows.Err", rows.Err())
 }
 
 func startSelectQuery(db Handle, plan plan, query string, args ...any) (returnedRows *sql.Rows, indexes [][]int, returnedError error) {
@@ -84,10 +80,8 @@ func startSelectQuery(db Handle, plan plan, query string, args ...any) (returned
 	}
 	defer func() {
 		if returnedError != nil {
-			closeErr := rows.Close() // NOTE: Not `returnedRows.Close()`! We may have `rows != nil && returnedRows == nil`.
-			if closeErr != nil {
-				returnedError = fmt.Errorf("%w (additional error during rows.Close(): %s)", returnedError, closeErr.Error())
-			}
+			// NOTE: Not `returnedRows.Close()`! We may have `rows != nil && returnedRows == nil`.
+			returnedError = newIOError(returnedError, "Rows.Close", rows.Close())
 		}
 	}()
 
@@ -116,6 +110,9 @@ func startSelectWhereQuery(db Handle, plan plan, partialQuery string, args ...an
 	}
 	query := plan.Select.Query + partialQuery
 	rows, err = db.Query(query, args...)
+	if err != nil {
+		err = fmt.Errorf("during Query(): %w", err)
+	}
 	return rows, plan.Select.ScanIndexes, err
 }
 
@@ -127,18 +124,11 @@ func collectRow(rows *sql.Rows, plan plan, v reflect.Value, slots []any, indexes
 	for idx, index := range indexes {
 		slots[idx] = v.FieldByIndex(index).Addr().Interface()
 	}
-	return rows.Scan(slots...)
-}
-
-func mergeCloseError(typeName string, err, closeErr error) error {
-	switch {
-	case closeErr == nil:
-		return err
-	case err == nil:
-		return fmt.Errorf("during %s.Close(): %w", typeName, closeErr)
-	default:
-		return fmt.Errorf("%w (additional error during %s.Close(): %s)", err, typeName, closeErr.Error())
+	err := rows.Scan(slots...)
+	if err != nil {
+		return newIOError(err, "Rows.Close", rows.Close())
 	}
+	return nil
 }
 
 // SelectOne executes the provided SQL query and fills an instance of the record type R if there is exactly one row in the result set,
@@ -167,8 +157,7 @@ func (s Store[R]) SelectOne(db Handle, query string, args ...any) (result R, err
 // SelectOneWhere is like [Store.SelectOne], but you only provide the part of the SELECT query that comes after the WHERE.
 // See [Store.SelectWhere] for an explanation of how the full query is constructed from this partial query.
 //
-// This method is significantly more efficient than [Store.SelectOne].
-// Prefer using it instaed of [Store.SelectOne] whenever possible.
+// This method is more efficient than [Store.SelectOne] on CPU runtime, but has a slight memory allocation overhead.
 func (s Store[R]) SelectOneWhere(db Handle, partialQuery string, args ...any) (result R, err error) {
 	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
 	//       Any expression that does not depend on type R should be factored out into a reusable function.

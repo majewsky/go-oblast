@@ -245,8 +245,9 @@ func (r result) RowsAffected() (int64, error) {
 // Rows is a mock response for a Query() or QueryRow() call.
 // It is constructed by [ResponseSet.ExpectQuery].
 type Rows struct {
-	columns []string
-	results [][]any
+	columns    []string
+	results    [][]any
+	closeError error
 }
 
 // AndReturnColumns configures the set of column names that will be returend by this query.
@@ -272,6 +273,11 @@ func (r *Rows) WithRow(values ...any) *Rows {
 	return r
 }
 
+// AndCloseFailsWith sets up Close() for this Rows to fail with the provided error message.
+func (r *Rows) AndCloseFailsWith(err error) {
+	r.closeError = err
+}
+
 type rows struct {
 	r      Rows
 	closed bool
@@ -285,7 +291,7 @@ func (r *rows) Columns() []string {
 // Close implements the [driver.Rows] interface.
 func (r *rows) Close() error {
 	r.closed = true
-	return nil
+	return r.r.closeError
 }
 
 // Next implements the [driver.Rows] interface.

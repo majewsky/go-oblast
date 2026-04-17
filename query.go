@@ -56,7 +56,7 @@ func (s Store[R]) Insert(db Handle, records ...R) (returnedRecords []R, returned
 			return nil, fmt.Errorf("during Prepare(): %w", err)
 		}
 		defer func() {
-			returnedError = mergeCloseError("Stmt", returnedError, stmt.Close())
+			returnedError = newIOError(returnedError, "Stmt.Close", stmt.Close())
 		}()
 	}
 
@@ -127,7 +127,7 @@ func (s Store[R]) Update(db Handle, records ...R) (returnedError error) {
 			return fmt.Errorf("during Prepare(): %w", err)
 		}
 		defer func() {
-			returnedError = mergeCloseError("Stmt", returnedError, stmt.Close())
+			returnedError = newIOError(returnedError, "Stmt.Close", stmt.Close())
 		}()
 	}
 
@@ -184,7 +184,7 @@ func (s Store[R]) Delete(db Handle, records ...R) (returnedError error) {
 			return fmt.Errorf("during Prepare(): %w", err)
 		}
 		defer func() {
-			returnedError = mergeCloseError("Stmt", returnedError, stmt.Close())
+			returnedError = newIOError(returnedError, "Stmt.Close", stmt.Close())
 		}()
 	}
 

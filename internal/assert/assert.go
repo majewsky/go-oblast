@@ -4,6 +4,8 @@
 package assert
 
 import (
+	"cmp"
+	"errors"
 	"reflect"
 	"testing"
 )
@@ -24,6 +26,12 @@ func DeepEqual[V any](t testing.TB, actual, expected V) {
 		t.Errorf("expected %#v", expected)
 		t.Errorf(" but got %#v", actual)
 	}
+}
+
+// ErrEqual is a test assertion.
+func ErrEqual(t testing.TB, actual error, expected string) {
+	t.Helper()
+	Equal(t, cmp.Or(actual, errors.New("<success>")).Error(), expected)
 }
 
 // SliceEqual is a test assertion.
