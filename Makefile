@@ -12,6 +12,9 @@ static-check: FORCE
 	@printf "\e[1;36m>> reuse lint\e[0m\n"
 	@if ! reuse lint -q; then reuse lint; fi
 
+benchmark: FORCE
+	@cd benchmark && go test -bench . -benchmem .
+
 GO_COVERPKGS := $(shell go list ./... | tr '\n' , | sed 's/,$$//')
 GO_TESTPKGS := $(shell go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./...)
 
