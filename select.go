@@ -73,31 +73,27 @@ func (s Store[R]) SelectWhere(db Handle, partialQuery string, args ...any) ([]R,
 	return result, newIOError(err, "Rows.Err", rows.Err())
 }
 
-func startSelectQuery(db Handle, plan plan, query string, args ...any) (returnedRows *sql.Rows, indexes [][]int, returnedError error) {
+func startSelectQuery(db Handle, plan plan, query string, args ...any) (*sql.Rows, [][]int, error) {
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("during Query(): %w", err)
 	}
-	defer func() {
-		if returnedError != nil {
-			// NOTE: Not `returnedRows.Close()`! We may have `rows != nil && returnedRows == nil`.
-			returnedError = newIOError(returnedError, "Rows.Close", rows.Close())
-		}
-	}()
 
 	columnNames, err := rows.Columns()
 	if err != nil {
-		return nil, nil, fmt.Errorf("during rows.Columns(): %w", err)
+		err = fmt.Errorf("during rows.Columns(): %w", err)
+		return nil, nil, newIOError(err, "Rows.Close", rows.Close())
 	}
-	indexes = make([][]int, len(columnNames))
+	indexes := make([][]int, len(columnNames))
 	for idx, columnName := range columnNames {
 		var ok bool
 		indexes[idx], ok = plan.IndexByColumnName[columnName]
 		if !ok {
-			return nil, nil, fmt.Errorf(
+			err := fmt.Errorf(
 				"result has column %q in position %d, but no field in type %s has `db:%[1]q`",
 				columnName, idx, plan.TypeName,
 			)
+			return nil, nil, newIOError(err, "Rows.Close", rows.Close())
 		}
 	}
 

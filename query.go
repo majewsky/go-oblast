@@ -139,7 +139,7 @@ func (s Store[R]) Insert(db Handle, records ...R) (returnedRecords []R, returned
 // Returns [MissingRecordError] if any of the records does not exist in the database, that is, if for any of the records, the database contains no row with the same primary key values.
 //
 // Returns an error if [NewStore] was called without the [TableNameIs] or [PrimaryKeyIs] options, which are both required to generate a query for this method.
-func (s Store[R]) Update(db Handle, records ...R) (returnedError error) {
+func (s Store[R]) Update(db Handle, records ...R) error {
 	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
 	//       Any expression that does not depend on type R should be factored out into a reusable function.
 
@@ -184,7 +184,7 @@ func updateRecord(v reflect.Value, recordIndex int, stmt preparedStatement, argu
 // Delete executes an SQL DELETE statement for each of the provided records, using their primary keys to locate the respective table rows.
 //
 // Returns an error if [NewStore] was called without the [TableNameIs] or [PrimaryKeyIs] options, which are both required to generate a query for this method.
-func (s Store[R]) Delete(db Handle, records ...R) (returnedError error) {
+func (s Store[R]) Delete(db Handle, records ...R) error {
 	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
 	//       Any expression that does not depend on type R should be factored out into a reusable function.
 	// TODO: minimize
