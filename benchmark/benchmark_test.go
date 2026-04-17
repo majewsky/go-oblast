@@ -15,6 +15,8 @@ import (
 	"go.xyrillian.de/oblast"
 	"go.xyrillian.de/oblast/internal/assert"
 	"go.xyrillian.de/oblast/internal/must"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 var (
@@ -24,8 +26,9 @@ var (
 	batchSizesForUpdate       = []int{1, 2, 4, 8, 16, 100}
 )
 
-func makeTestDB(t testing.TB, recordCount int) *sql.DB {
-	db := must.Return(sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())))(t)
+func makeTestDB(t testing.TB, recordCount int) (db *sql.DB, dsn string) {
+	dsn = fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db = must.Return(sql.Open("sqlite3", dsn))(t)
 	_ = must.Return(db.Exec(`CREATE TABLE entries (id INTEGER, message TEXT, PRIMARY KEY (id AUTOINCREMENT))`))(t)
 
 	if recordCount > 0 {
@@ -38,7 +41,7 @@ func makeTestDB(t testing.TB, recordCount int) *sql.DB {
 		must.Succeed(t, stmt.Close())
 	}
 
-	return db
+	return db, dsn
 }
 
 type OblastEntry struct {
@@ -51,23 +54,28 @@ type GorpEntry struct {
 	Message string `db:"message"`
 }
 
+type GormEntry struct {
+	ID      int `gorm:"primaryKey"`
+	Message string
+}
+
+func (GormEntry) TableName() string { return "entries" }
+
 func BenchmarkSelectMany(b *testing.B) {
-	db := makeTestDB(b, totalRecordCountForSelect)
+	db, dsn := makeTestDB(b, totalRecordCountForSelect)
 
 	// test with different sizes of resultsets (N=1 is an OLTP-like workload,
 	// then the larger N lean more towards the OLAP side of things)
 	for _, batchSize := range batchSizesForSelect {
 		b.Run("N="+strconv.Itoa(batchSize), func(b *testing.B) {
 			// prepare the functions that will be benched
-			store, err := oblast.NewStore[OblastEntry](
+			store := oblast.MustNewStore[OblastEntry](
 				oblast.SqliteDialect(),
 				oblast.TableNameIs("entries"),
 				oblast.PrimaryKeyIs("id"),
 			)
-			if err != nil {
-				b.Fatal(err)
-			}
-			gdb := gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
+			gorpDB := gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
+			gormDB := must.Return(gorm.Open(sqlite.Open(dsn), &gorm.Config{}))(b)
 			partialQuery := `id < ` + strconv.Itoa(batchSize)
 			query := `SELECT * FROM entries WHERE ` + partialQuery
 
@@ -83,7 +91,12 @@ func BenchmarkSelectMany(b *testing.B) {
 
 			selectWithGorp := func(b *testing.B) {
 				var records []GorpEntry
-				_ = must.Return(gdb.Select(&records, query))(b)
+				_ = must.Return(gorpDB.Select(&records, query))(b)
+				assert.Equal(b, len(records), batchSize)
+			}
+
+			selectWithGorm := func(b *testing.B) {
+				records := must.Return(gorm.G[GormEntry](gormDB).Where(partialQuery).Find(b.Context()))(b)
 				assert.Equal(b, len(records), batchSize)
 			}
 
@@ -107,11 +120,17 @@ func BenchmarkSelectMany(b *testing.B) {
 			// run once to prewarm caches (if any)
 			selectWithOblast(b)
 			selectWithGorp(b)
+			selectWithGorm(b)
 			if b.Failed() {
 				b.FailNow()
 			}
 
 			// run actual benchmark
+			b.Run("via Gorm using Find", func(b *testing.B) {
+				for b.Loop() {
+					selectWithGorp(b)
+				}
+			})
 			b.Run("via Gorp using Select", func(b *testing.B) {
 				for b.Loop() {
 					selectWithGorp(b)
@@ -137,21 +156,19 @@ func BenchmarkSelectMany(b *testing.B) {
 }
 
 func BenchmarkSelectOne(b *testing.B) {
-	db := makeTestDB(b, totalRecordCountForSelect)
+	db, dsn := makeTestDB(b, totalRecordCountForSelect)
 
 	// grab a "random" record from the DB, not just the first or the last
 	recordID := min(totalRecordCountForSelect*2/3, totalRecordCountForSelect)
 
 	// prepare the functions that will be benched
-	store, err := oblast.NewStore[OblastEntry](
+	store := oblast.MustNewStore[OblastEntry](
 		oblast.SqliteDialect(),
 		oblast.TableNameIs("entries"),
 		oblast.PrimaryKeyIs("id"),
 	)
-	if err != nil {
-		b.Fatal(err)
-	}
-	gdb := gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
+	gorpDB := gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
+	gormDB := must.Return(gorm.Open(sqlite.Open(dsn), &gorm.Config{}))(b)
 	partialQuery := `id = ` + strconv.Itoa(recordID)
 	query := `SELECT * FROM entries WHERE ` + partialQuery
 
@@ -167,7 +184,12 @@ func BenchmarkSelectOne(b *testing.B) {
 
 	selectWithGorp := func(b *testing.B) {
 		var r GorpEntry
-		must.Succeed(b, gdb.SelectOne(&r, query))
+		must.Succeed(b, gorpDB.SelectOne(&r, query))
+		assert.Equal(b, r.ID, recordID)
+	}
+
+	selectWithGorm := func(b *testing.B) {
+		r := must.Return(gorm.G[GormEntry](gormDB).Where(partialQuery).First(b.Context()))(b)
 		assert.Equal(b, r.ID, recordID)
 	}
 
@@ -183,11 +205,17 @@ func BenchmarkSelectOne(b *testing.B) {
 	// run once to prewarm caches (if any)
 	selectWithOblast(b)
 	selectWithGorp(b)
+	selectWithGorm(b)
 	if b.Failed() {
 		b.FailNow()
 	}
 
 	// run actual benchmark
+	b.Run("via Gorm using First", func(b *testing.B) {
+		for b.Loop() {
+			selectWithGorm(b)
+		}
+	})
 	b.Run("via Gorp using SelectOne", func(b *testing.B) {
 		for b.Loop() {
 			selectWithGorp(b)
@@ -211,18 +239,16 @@ func BenchmarkSelectOne(b *testing.B) {
 }
 
 func BenchmarkInsertAndDelete(b *testing.B) {
-	db := makeTestDB(b, 0)
+	db, dsn := makeTestDB(b, 0)
 
-	store, err := oblast.NewStore[OblastEntry](
+	store := oblast.MustNewStore[OblastEntry](
 		oblast.SqliteDialect(),
 		oblast.TableNameIs("entries"),
 		oblast.PrimaryKeyIs("id"),
 	)
-	if err != nil {
-		b.Fatal(err)
-	}
-	gdb := gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
-	gdb.AddTableWithName(GorpEntry{}, "entries").SetKeys(true, "id")
+	gorpDB := gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
+	gorpDB.AddTableWithName(GorpEntry{}, "entries").SetKeys(true, "id")
+	gormDB := must.Return(gorm.Open(sqlite.Open(dsn), &gorm.Config{}))(b)
 
 	// test with different amounts of records
 	for _, batchSize := range batchSizesForInsertDelete {
@@ -247,13 +273,29 @@ func BenchmarkInsertAndDelete(b *testing.B) {
 				for idx := range records {
 					records[idx] = &GorpEntry{Message: "hello"}
 				}
-				must.Succeed(b, gdb.Insert(records...))
+				must.Succeed(b, gorpDB.Insert(records...))
 				for _, r := range records {
 					if r.(*GorpEntry).ID == 0 {
 						b.Errorf("ID was not filled!")
 					}
 				}
-				_ = must.Return(gdb.Delete(records...))(b)
+				_ = must.Return(gorpDB.Delete(records...))(b)
+			}
+
+			insertAndDeleteWithGorm := func(b *testing.B) {
+				records := make([]GormEntry, batchSize)
+				for idx := range records {
+					records[idx] = GormEntry{Message: "hello"}
+				}
+				must.Succeed(b, gorm.G[GormEntry](gormDB).CreateInBatches(b.Context(), &records, batchSize))
+				for _, r := range records {
+					if r.ID == 0 {
+						b.Errorf("ID was not filled!")
+					}
+				}
+				result := gormDB.Delete(&records)
+				assert.ErrEqual(b, result.Error, "<success>")
+				assert.Equal(b, result.RowsAffected, int64(batchSize))
 			}
 
 			insertAndDeleteWithStraightSqlite := func(b *testing.B) {
@@ -285,7 +327,13 @@ func BenchmarkInsertAndDelete(b *testing.B) {
 			// run once to prewarm caches (if any)
 			insertAndDeleteWithOblast(b)
 			insertAndDeleteWithGorp(b)
+			insertAndDeleteWithGorm(b)
 
+			b.Run("via Gorm", func(b *testing.B) {
+				for b.Loop() {
+					insertAndDeleteWithGorm(b)
+				}
+			})
 			b.Run("via Gorp", func(b *testing.B) {
 				for b.Loop() {
 					insertAndDeleteWithGorp(b)
@@ -311,18 +359,16 @@ func BenchmarkInsertAndDelete(b *testing.B) {
 }
 
 func BenchmarkUpdate(b *testing.B) {
-	db := makeTestDB(b, 0)
+	db, dsn := makeTestDB(b, 0)
 
-	store, err := oblast.NewStore[OblastEntry](
+	store := oblast.MustNewStore[OblastEntry](
 		oblast.SqliteDialect(),
 		oblast.TableNameIs("entries"),
 		oblast.PrimaryKeyIs("id"),
 	)
-	if err != nil {
-		b.Fatal(err)
-	}
-	gdb := gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
-	gdb.AddTableWithName(GorpEntry{}, "entries").SetKeys(true, "id")
+	gorpDB := gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
+	gorpDB.AddTableWithName(GorpEntry{}, "entries").SetKeys(true, "id")
+	gormDB := must.Return(gorm.Open(sqlite.Open(dsn), &gorm.Config{}))(b)
 
 	// test with different amounts of records
 	for _, batchSize := range batchSizesForUpdate {
@@ -338,6 +384,10 @@ func BenchmarkUpdate(b *testing.B) {
 			for idx, r := range recordsForOblast {
 				recordsForGorp[idx] = new(GorpEntry(r))
 			}
+			recordsForGorm := make([]GormEntry, batchSize)
+			for idx, r := range recordsForOblast {
+				recordsForGorm[idx] = GormEntry(r)
+			}
 
 			// prepare the functions that will be benched
 			updateWithOblast := func(b *testing.B, message string) {
@@ -350,7 +400,15 @@ func BenchmarkUpdate(b *testing.B) {
 				for _, r := range recordsForGorp {
 					r.(*GorpEntry).Message = message
 				}
-				_ = must.Return(gdb.Update(recordsForGorp...))(b)
+				_ = must.Return(gorpDB.Update(recordsForGorp...))(b)
+			}
+			updateWithGorm := func(b *testing.B, message string) {
+				for idx := range recordsForGorm {
+					recordsForGorm[idx].Message = message
+				}
+				result := gormDB.Save(&recordsForGorm)
+				assert.ErrEqual(b, result.Error, "<success>")
+				assert.Equal(b, result.RowsAffected, int64(batchSize))
 			}
 			updateWithStraightSqlite := func(b *testing.B, message string) {
 				for _, r := range recordsForOblast {
@@ -370,9 +428,19 @@ func BenchmarkUpdate(b *testing.B) {
 			}
 
 			// run once to prewarm caches (if any)
+			updateWithGorm(b, "warming up")
 			updateWithGorp(b, "warming up")
 			updateWithOblast(b, "warming up")
 
+			b.Run("via Gorm", func(b *testing.B) {
+				idx := 0
+				for b.Loop() {
+					idx++
+					message := fmt.Sprintf("round %d", idx)
+					updateWithGorm(b, message)
+					checkRecordsUpdated(b, message)
+				}
+			})
 			b.Run("via Gorp", func(b *testing.B) {
 				idx := 0
 				for b.Loop() {
