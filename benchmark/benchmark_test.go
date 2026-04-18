@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/go-gorp/gorp/v3"
 	_ "github.com/mattn/go-sqlite3"
@@ -18,6 +19,15 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
+
+// This is not a real benchmark (obviously).
+// Its purpose is to be the first line that is printed, while having one of the longest names,
+// so that all other results are aligned with it and the table looks nice.
+func BenchmarkHeadingHeadingHeadingHeadingHeadingHeading(b *testing.B) {
+	for b.Loop() {
+		time.Sleep(time.Microsecond)
+	}
+}
 
 var (
 	totalRecordCountForSelect = 10000
