@@ -19,11 +19,12 @@ func TestInsertBasicUsingLastInsertId(t *testing.T) {
 	db := sql.OpenDB(md)
 
 	type basicRecord struct {
-		ID   int64  `db:"id,auto"`
-		Name string `db:"name"`
+		ID   int64  `oblast:"id,auto"`
+		Name string `oblast:"name"`
 	}
 	store := oblast.MustNewStore[basicRecord](
 		oblast.SqliteDialect(),
+		oblast.StructTagKeyIs("oblast"), // this test also randomly provides coverage for this option
 		oblast.TableNameIs("basic_records"),
 		oblast.PrimaryKeyIs("id"),
 	)

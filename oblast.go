@@ -123,6 +123,14 @@ func PrimaryKeyIs(columnNames ...string) PlanOption {
 	return func(opts *planOpts) { opts.PrimaryKeyColumnNames = columnNames }
 }
 
+// StructTagKeyIs is a PlanOption for record types that allows renaming the struct tag key that Oblast inspects from its default value of "db".
+// For example, providing StructTagKeyIs("oblast") means that a struct tag like `db:",auto"` must be written as `oblast:",auto"` instead.
+//
+// This is useful when migrating from or to another ORM library that uses the same `db:"..."` tag as Oblast, but with conflicting semantics.
+func StructTagKeyIs(key string) PlanOption {
+	return func(opts *planOpts) { opts.StructTagKey = key }
+}
+
 // Handle is an interface for functions providing direct DB access.
 // It covers methods provided by both *sql.DB and *sql.Tx, thus allowing functions using it to be used both within and outside of transactions.
 type Handle interface {

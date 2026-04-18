@@ -49,6 +49,7 @@ type plannedQuery struct {
 
 // planOpts holds additional arguments to buildPlan().
 type planOpts struct {
+	StructTagKey          string // defaults to "db"
 	TableName             string
 	PrimaryKeyColumnNames []string
 }
@@ -57,6 +58,11 @@ type planOpts struct {
 func buildPlan(t reflect.Type, dialect Dialect, opts planOpts) (plan, error) {
 	if t.Kind() != reflect.Struct {
 		return plan{}, fmt.Errorf("expected struct type, but got kind %q", t.Kind().String())
+	}
+
+	// apply defaults to planOpts fields
+	if opts.StructTagKey == "" {
+		opts.StructTagKey = "db"
 	}
 
 	var p = plan{
@@ -85,7 +91,7 @@ func buildPlan(t reflect.Type, dialect Dialect, opts planOpts) (plan, error) {
 		// recurse into struct fields (i.e. ignore the struct itself and consider its members instead)
 		// unless the field itself has a `db:"..."` tag
 		if field.Type.Kind() == reflect.Struct || (field.Type.Kind() == reflect.Pointer && field.Type.Elem().Kind() == reflect.Struct) {
-			if field.Tag.Get("db") == "" {
+			if field.Tag.Get(opts.StructTagKey) == "" {
 				indexesOfUnusedTransparentStructs = append(indexesOfUnusedTransparentStructs, field.Index)
 				if field.Type.Kind() == reflect.Pointer {
 					// remember that, when scanning into a record of type `t`, we need to write a non-nil zeroed struct into this field
@@ -105,7 +111,7 @@ func buildPlan(t reflect.Type, dialect Dialect, opts planOpts) (plan, error) {
 		}
 
 		// check `db:"..."` tag, ignore fields that are declared with column name "-"
-		tags := strings.Split(strings.TrimSpace(field.Tag.Get("db")), ",")
+		tags := strings.Split(strings.TrimSpace(field.Tag.Get(opts.StructTagKey)), ",")
 		columnName, extraTags := cmp.Or(tags[0], field.Name), tags[1:]
 		if columnName == "-" {
 			continue
@@ -113,8 +119,8 @@ func buildPlan(t reflect.Type, dialect Dialect, opts planOpts) (plan, error) {
 
 		if otherIndex := p.IndexByColumnName[columnName]; otherIndex != nil {
 			return plan{}, fmt.Errorf(
-				"duplicate tag `db:%q` on field index %v, but also on field index %v",
-				columnName, otherIndex, field.Index,
+				"duplicate tag `%s:%q` on field index %v, but also on field index %v",
+				opts.StructTagKey, columnName, otherIndex, field.Index,
 			)
 		}
 		p.IndexByColumnName[columnName] = field.Index
@@ -134,7 +140,7 @@ func buildPlan(t reflect.Type, dialect Dialect, opts planOpts) (plan, error) {
 			case "auto":
 				p.AutoColumnNames = append(p.AutoColumnNames, columnName)
 			default:
-				return plan{}, fmt.Errorf("unknown option `db:%q` on field %q", ","+tag, field.Name)
+				return plan{}, fmt.Errorf("unknown option `%s:%q` on field %q", opts.StructTagKey, ","+tag, field.Name)
 			}
 		}
 	}
@@ -146,8 +152,8 @@ func buildPlan(t reflect.Type, dialect Dialect, opts planOpts) (plan, error) {
 	for _, index := range indexesOfUnusedTransparentStructs {
 		field := t.FieldByIndex(index)
 		return plan{}, fmt.Errorf(
-			"field %q of type %s does not contain any mapped fields (to map this whole field to a DB column, add an explicit `db:\"...\"` tag)",
-			field.Name, field.Type.String(),
+			"field %q of type %s does not contain any mapped fields (to map this whole field to a DB column, add an explicit `%s:\"...\"` tag)",
+			field.Name, field.Type.String(), opts.StructTagKey,
 		)
 	}
 
@@ -160,7 +166,7 @@ func buildPlan(t reflect.Type, dialect Dialect, opts planOpts) (plan, error) {
 	for _, columnName := range p.PrimaryKeyColumnNames {
 		_, ok := p.IndexByColumnName[columnName]
 		if !ok {
-			return plan{}, fmt.Errorf("no field has tag `db:%q`, but a field of this name was declared in the primary key", columnName)
+			return plan{}, fmt.Errorf("no field has tag `%s:%q`, but a field of this name was declared in the primary key", opts.StructTagKey, columnName)
 		}
 	}
 
