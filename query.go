@@ -75,6 +75,9 @@ func (s preparedStatement) QueryRow(args ...any) *sql.Row {
 // On success, returns the original set of records, updated thusly.
 //
 // Returns an error if [NewStore] was called without the [TableNameIs] option, which is required to generate a query for this method.
+//
+// Returns an error if any of the `records` has a non-zero value in any column marked as `db:",auto"`.
+// Records that already exist in the database should be handled with [Store.Update] instead.
 func (s Store[R]) Insert(db Handle, records ...R) ([]R, error) {
 	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
 	//       Any expression that does not depend on type R should be factored out into a reusable function.
@@ -117,6 +120,11 @@ func insertRecordUsingLastInsertID(v reflect.Value, recordIndex int, stmt prepar
 	for idx, index := range argumentIndexes {
 		argumentSlots[idx] = v.FieldByIndex(index).Interface()
 	}
+	scanField := v.FieldByIndex(scanIndex)
+	if !scanField.IsZero() {
+		return fmt.Errorf(`refusing to INSERT record with idx = %d that already has non-zero values in its "auto" columns`, recordIndex)
+	}
+
 	result, err := stmt.Exec(argumentSlots...)
 	if err != nil {
 		return fmt.Errorf("during Exec() for record with idx = %d: %w", recordIndex, err)
@@ -126,12 +134,12 @@ func insertRecordUsingLastInsertID(v reflect.Value, recordIndex int, stmt prepar
 		return fmt.Errorf("during LastInsertId() for record with idx = %d: %w", recordIndex, err)
 	}
 	if plan.FillIDWithSetInt {
-		v.FieldByIndex(scanIndex).SetInt(id)
+		scanField.SetInt(id)
 	} else if plan.FillIDWithSetUint {
 		if id < 0 {
 			return fmt.Errorf("LastInsertId() = %d for record with idx = %d cannot be converted to uint", id, recordIndex)
 		}
-		v.FieldByIndex(scanIndex).SetUint(uint64(id))
+		scanField.SetUint(uint64(id))
 	}
 	return nil
 }
@@ -168,7 +176,11 @@ func insertRecordUsingReturningClause(v reflect.Value, recordIndex int, stmt pre
 		argumentSlots[idx] = v.FieldByIndex(index).Interface()
 	}
 	for idx, index := range scanIndexes {
-		scanSlots[idx] = v.FieldByIndex(index).Addr().Interface()
+		f := v.FieldByIndex(index)
+		if !f.IsZero() {
+			return fmt.Errorf(`refusing to INSERT record with idx = %d that already has non-zero values in its "auto" columns`, recordIndex)
+		}
+		scanSlots[idx] = f.Addr().Interface()
 	}
 	err := stmt.QueryRow(argumentSlots...).Scan(scanSlots...)
 	if err != nil {

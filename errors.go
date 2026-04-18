@@ -27,9 +27,12 @@ func (e MissingRecordError[R]) Error() string {
 	return "could not UPDATE record that does not exist in the database: " + strings.Join(keyDescs, ", ")
 }
 
-// An error type that optionally contains either one of the following or both:
-// - a core error from an IO operation (e.g. a database read)
+// ioError is an error type that contains:
+// - (optionally) a main error from an IO operation (e.g. a database read)
 // - an auxiliary error from closing or otherwise cleaning up the respective IO handle
+//
+// This is only used when there is a cleanup error.
+// Otherwise, the main error will be returned without being wrapped in this type.
 type ioError struct {
 	MainError        error
 	CleanupError     error
@@ -37,32 +40,26 @@ type ioError struct {
 }
 
 func newIOError(err error, cleanupOperation string, cleanupErr error) error {
-	if err == nil && cleanupErr == nil {
-		return nil
+	if cleanupErr == nil {
+		return err
 	}
 	return ioError{err, cleanupErr, cleanupOperation}
 }
 
 // Error implements the builtin/error interface.
 func (e ioError) Error() string {
-	switch {
-	case e.CleanupError == nil:
-		return e.MainError.Error()
-	case e.MainError == nil:
+	if e.MainError == nil {
 		return fmt.Sprintf("during %s(): %s", e.CleanupOperation, e.CleanupError.Error())
-	default:
+	} else {
 		return fmt.Sprintf("%s (additional error during %s(): %s)", e.MainError.Error(), e.CleanupOperation, e.CleanupError.Error())
 	}
 }
 
 // Unwrap implements the interface implied by the documentation of package errors.
 func (e ioError) Unwrap() []error {
-	result := make([]error, 0, 2)
-	if e.MainError != nil {
-		result = append(result, e.MainError)
+	if e.MainError == nil {
+		return []error{e.CleanupError}
+	} else {
+		return []error{e.MainError, e.CleanupError}
 	}
-	if e.CleanupError != nil {
-		result = append(result, e.CleanupError)
-	}
-	return result
 }
