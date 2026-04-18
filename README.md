@@ -13,6 +13,12 @@ You may think that the name refers to the type of administrative division that e
 
 Please refer to the [package documentation](https://pkg.go.dev/go.xyrillian.de/oblast).
 
+## How to contribute
+
+The primary repository at <https://git.xyrillian.de/go-oblast> is only writable by the maintainer.
+To contribute, you may use `git format-patch` in the usual manner and send patches to the maintainer's mail address (which can be found in the copyright notice headers on each file).
+Alternatively, if you have a GitHub account, you can submit issues and pull requests at the mirror repository <https://github.com/majewsky/go-oblast>.
+
 ## Design goals and priorities
 
 The design goals, ordered by priority (most important comes first), are:
