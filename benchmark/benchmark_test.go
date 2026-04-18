@@ -23,7 +23,7 @@ import (
 // This is not a real benchmark (obviously).
 // Its purpose is to be the first line that is printed, while having one of the longest names,
 // so that all other results are aligned with it and the table looks nice.
-func BenchmarkHeadingHeadingHeadingHeadingHeadingHeading(b *testing.B) {
+func BenchmarkHeadingHeadingHeadingHeadingHeadingHeadingHeading(b *testing.B) {
 	for b.Loop() {
 		time.Sleep(time.Microsecond)
 	}
@@ -88,6 +88,7 @@ func BenchmarkSelectMany(b *testing.B) {
 			gormDB := must.Return(gorm.Open(sqlite.Open(dsn), &gorm.Config{}))(b)
 			partialQuery := `id < ` + strconv.Itoa(batchSize)
 			query := `SELECT * FROM entries WHERE ` + partialQuery
+			precomputedQuery := store.MustPrepareSelectQueryWhere(partialQuery)
 
 			selectWithOblast := func(b *testing.B) {
 				records := must.Return(store.Select(db, query))(b)
@@ -95,7 +96,7 @@ func BenchmarkSelectMany(b *testing.B) {
 			}
 
 			selectWithOblastWhere := func(b *testing.B) {
-				records := must.Return(store.SelectWhere(db, partialQuery))(b)
+				records := must.Return(precomputedQuery.Select(db))(b)
 				assert.Equal(b, len(records), batchSize)
 			}
 
@@ -181,6 +182,7 @@ func BenchmarkSelectOne(b *testing.B) {
 	gormDB := must.Return(gorm.Open(sqlite.Open(dsn), &gorm.Config{}))(b)
 	partialQuery := `id = ` + strconv.Itoa(recordID)
 	query := `SELECT * FROM entries WHERE ` + partialQuery
+	precomputedQuery := store.MustPrepareSelectQueryWhere(partialQuery)
 
 	selectWithOblast := func(b *testing.B) {
 		r := must.Return(store.SelectOne(db, query))(b)
@@ -188,7 +190,7 @@ func BenchmarkSelectOne(b *testing.B) {
 	}
 
 	selectWithOblastWhere := func(b *testing.B) {
-		r := must.Return(store.SelectOneWhere(db, partialQuery))(b)
+		r := must.Return(precomputedQuery.SelectOne(db))(b)
 		assert.Equal(b, r.ID, recordID)
 	}
 

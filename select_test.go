@@ -55,24 +55,49 @@ func TestSelectReturningSomeRecords(t *testing.T) {
 		)
 	})
 
+	t.Run("using PreparedSelectQuery.Select", func(t *testing.T) {
+		md.ForQuery(`SELECT "id", "name" FROM "basic_records" WHERE id < ?`).
+			ExpectQueryWithArgs(3).
+			AndReturnColumns("id", "name").
+			WithRow(1, "fffoo").
+			WithRow(2, "bbbar")
+		query := store.MustPrepareSelectQueryWhere(`id < ?`)
+		records := must.Return(query.Select(db, 3))(t)
+		assert.SliceEqual(t, records,
+			basicRecord{1, "fffoo"},
+			basicRecord{2, "bbbar"},
+		)
+	})
+
 	t.Run("using Store.SelectOne", func(t *testing.T) {
 		md.ForQuery(`SELECT * FROM basic_records WHERE id < ?`).
 			ExpectQueryWithArgs(3).
 			AndReturnColumns("name", "id").
-			WithRow("fffoo", 1).
-			WithRow("bbbar", 2)
+			WithRow("ffffoo", 1).
+			WithRow("bbbbar", 2)
 		record := must.Return(store.SelectOne(db, `SELECT * FROM basic_records WHERE id < ?`, 3))(t)
-		assert.Equal(t, record, basicRecord{1, "fffoo"})
+		assert.Equal(t, record, basicRecord{1, "ffffoo"})
 	})
 
 	t.Run("using Store.SelectOneWhere", func(t *testing.T) {
 		md.ForQuery(`SELECT "id", "name" FROM "basic_records" WHERE id < ?`).
 			ExpectQueryWithArgs(3).
 			AndReturnColumns("id", "name").
-			WithRow(1, "ffffoo").
-			WithRow(2, "bbbbar")
+			WithRow(1, "fffffoo").
+			WithRow(2, "bbbbbar")
 		record := must.Return(store.SelectOneWhere(db, `id < ?`, 3))(t)
-		assert.Equal(t, record, basicRecord{1, "ffffoo"})
+		assert.Equal(t, record, basicRecord{1, "fffffoo"})
+	})
+
+	t.Run("using PreparedSelectQuery.SelectOne", func(t *testing.T) {
+		md.ForQuery(`SELECT "id", "name" FROM "basic_records" WHERE id < ?`).
+			ExpectQueryWithArgs(3).
+			AndReturnColumns("id", "name").
+			WithRow(1, "ffffffoo").
+			WithRow(2, "bbbbbbar")
+		query := store.MustPrepareSelectQueryWhere(`id < ?`)
+		record := must.Return(query.SelectOne(db, 3))(t)
+		assert.Equal(t, record, basicRecord{1, "ffffffoo"})
 	})
 }
 
@@ -106,6 +131,15 @@ func TestSelectReturningNoRecords(t *testing.T) {
 		assert.SliceEqual(t, records, nil...)
 	})
 
+	t.Run("using PreparedSelectQuery.Select", func(t *testing.T) {
+		md.ForQuery(`SELECT "id", "name" FROM "basic_records" WHERE id < ?`).
+			ExpectQueryWithArgs(3).
+			AndReturnColumns("id", "name")
+		query := store.MustPrepareSelectQueryWhere(`id < ?`)
+		records := must.Return(query.Select(db, 3))(t)
+		assert.SliceEqual(t, records, nil...)
+	})
+
 	t.Run("using Store.SelectOne", func(t *testing.T) {
 		md.ForQuery(`SELECT * FROM basic_records WHERE id < ?`).
 			ExpectQueryWithArgs(3).
@@ -119,6 +153,15 @@ func TestSelectReturningNoRecords(t *testing.T) {
 			ExpectQueryWithArgs(3).
 			AndReturnColumns("id", "name")
 		_, err := store.SelectOneWhere(db, `id < ?`, 3)
+		assert.ErrEqual(t, err, sql.ErrNoRows.Error())
+	})
+
+	t.Run("using PreparedSelectQuery.SelectOne", func(t *testing.T) {
+		md.ForQuery(`SELECT "id", "name" FROM "basic_records" WHERE id < ?`).
+			ExpectQueryWithArgs(3).
+			AndReturnColumns("id", "name")
+		query := store.MustPrepareSelectQueryWhere(`id < ?`)
+		_, err := query.SelectOne(db, 3)
 		assert.ErrEqual(t, err, sql.ErrNoRows.Error())
 	})
 }
@@ -196,6 +239,13 @@ func TestSelectWithScanError(t *testing.T) {
 		assert.ErrEqual(t, err, expectedError)
 	})
 
+	t.Run("using PreparedSelectQuery.Select", func(t *testing.T) {
+		commonSetup(`SELECT "id", "created_at" FROM "basic_records" WHERE id < ?`)
+		query := store.MustPrepareSelectQueryWhere(`id < ?`)
+		_, err := query.Select(db, 3)
+		assert.ErrEqual(t, err, expectedError)
+	})
+
 	t.Run("using Store.SelectOne", func(t *testing.T) {
 		commonSetup(`SELECT * FROM basic_records WHERE id < ?`)
 		_, err := store.SelectOne(db, `SELECT * FROM basic_records WHERE id < ?`, 3)
@@ -205,6 +255,13 @@ func TestSelectWithScanError(t *testing.T) {
 	t.Run("using Store.SelectOneWhere", func(t *testing.T) {
 		commonSetup(`SELECT "id", "created_at" FROM "basic_records" WHERE id < ?`)
 		_, err := store.SelectOneWhere(db, `id < ?`, 3)
+		assert.ErrEqual(t, err, expectedError)
+	})
+
+	t.Run("using PreparedSelectQuery.SelectOne", func(t *testing.T) {
+		commonSetup(`SELECT "id", "created_at" FROM "basic_records" WHERE id < ?`)
+		query := store.MustPrepareSelectQueryWhere(`id < ?`)
+		_, err := query.SelectOne(db, 3)
 		assert.ErrEqual(t, err, expectedError)
 	})
 }
@@ -258,6 +315,16 @@ func TestSelectIntoEmbeddedTypes(t *testing.T) {
 		)
 	})
 
+	t.Run("using PreparedSelectQuery.Select", func(t *testing.T) {
+		commonSetup(`SELECT "id", "created_at", "updated_at" FROM "composite_records" WHERE TRUE`)
+		query := store.MustPrepareSelectQueryWhere(`TRUE`)
+		records := must.Return(query.Select(db))(t)
+		assert.SliceDeepEqual(t, records,
+			compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}},
+			compositeRecord{2, HasCreatedAt{time.Unix(2, 0)}, &HasUpdatedAt{nil}},
+		)
+	})
+
 	t.Run("using Store.SelectOne", func(t *testing.T) {
 		commonSetup(`SELECT * FROM composite_records`)
 		record := must.Return(store.SelectOne(db, `SELECT * FROM composite_records`))(t)
@@ -269,6 +336,15 @@ func TestSelectIntoEmbeddedTypes(t *testing.T) {
 	t.Run("using Store.SelectOneWhere", func(t *testing.T) {
 		commonSetup(`SELECT "id", "created_at", "updated_at" FROM "composite_records" WHERE TRUE`)
 		record := must.Return(store.SelectOneWhere(db, `TRUE`))(t)
+		assert.DeepEqual(t, record,
+			compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}},
+		)
+	})
+
+	t.Run("using PreparedSelectQuery.SelectOne", func(t *testing.T) {
+		commonSetup(`SELECT "id", "created_at", "updated_at" FROM "composite_records" WHERE TRUE`)
+		query := store.MustPrepareSelectQueryWhere(`TRUE`)
+		record := must.Return(query.SelectOne(db))(t)
 		assert.DeepEqual(t, record,
 			compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}},
 		)
@@ -294,18 +370,30 @@ func TestSelectCapturingQueryError(t *testing.T) {
 		assert.ErrEqual(t, err, "during Query(): unexpected query: SELECT * FROM basic_records WHERE id < ?")
 	})
 
-	t.Run("using Store.SelectOne", func(t *testing.T) {
-		_, err := store.SelectOne(db, `SELECT * FROM basic_records WHERE id < ?`, 3)
-		assert.ErrEqual(t, err, "during Query(): unexpected query: SELECT * FROM basic_records WHERE id < ?")
-	})
-
 	t.Run("using Store.SelectWhere", func(t *testing.T) {
 		_, err := store.SelectWhere(db, `id < ?`, 3)
 		assert.ErrEqual(t, err, `during Query(): unexpected query: SELECT "id", "name" FROM "basic_records" WHERE id < ?`)
 	})
 
+	t.Run("using PreparedSelectQuery.Select", func(t *testing.T) {
+		query := store.MustPrepareSelectQueryWhere(`id < ?`)
+		_, err := query.Select(db, 3)
+		assert.ErrEqual(t, err, `during Query(): unexpected query: SELECT "id", "name" FROM "basic_records" WHERE id < ?`)
+	})
+
+	t.Run("using Store.SelectOne", func(t *testing.T) {
+		_, err := store.SelectOne(db, `SELECT * FROM basic_records WHERE id < ?`, 3)
+		assert.ErrEqual(t, err, "during Query(): unexpected query: SELECT * FROM basic_records WHERE id < ?")
+	})
+
 	t.Run("using Store.SelectOneWhere", func(t *testing.T) {
 		_, err := store.SelectOneWhere(db, `id < ?`, 3)
+		assert.ErrEqual(t, err, `unexpected query: SELECT "id", "name" FROM "basic_records" WHERE id < ?`)
+	})
+
+	t.Run("using PreparedSelectQuery.SelectOne", func(t *testing.T) {
+		query := store.MustPrepareSelectQueryWhere(`id < ?`)
+		_, err := query.SelectOne(db, 3)
 		assert.ErrEqual(t, err, `unexpected query: SELECT "id", "name" FROM "basic_records" WHERE id < ?`)
 	})
 }
@@ -339,21 +427,35 @@ func TestSelectCapturingCloseError(t *testing.T) {
 		assert.ErrEqual(t, err, "during Rows.Err(): datacenter on fire")
 	})
 
-	t.Run("using Store.SelectOne", func(t *testing.T) {
-		commonSetup(`SELECT * FROM basic_records WHERE id < ?`)
-		_, err := store.SelectOne(db, `SELECT * FROM basic_records WHERE id < ?`, 3)
-		assert.ErrEqual(t, err, "during Rows.Err(): datacenter on fire")
-	})
-
 	t.Run("using Store.SelectWhere", func(t *testing.T) {
 		commonSetup(`SELECT "id", "name" FROM "basic_records" WHERE id < ?`)
 		_, err := store.SelectWhere(db, `id < ?`, 3)
 		assert.ErrEqual(t, err, "during Rows.Err(): datacenter on fire")
 	})
 
+	t.Run("using PreparedSelectQuery.Select", func(t *testing.T) {
+		commonSetup(`SELECT "id", "name" FROM "basic_records" WHERE id < ?`)
+		query := store.MustPrepareSelectQueryWhere(`id < ?`)
+		_, err := query.Select(db, 3)
+		assert.ErrEqual(t, err, "during Rows.Err(): datacenter on fire")
+	})
+
+	t.Run("using Store.SelectOne", func(t *testing.T) {
+		commonSetup(`SELECT * FROM basic_records WHERE id < ?`)
+		_, err := store.SelectOne(db, `SELECT * FROM basic_records WHERE id < ?`, 3)
+		assert.ErrEqual(t, err, "during Rows.Err(): datacenter on fire")
+	})
+
 	t.Run("using Store.SelectOneWhere", func(t *testing.T) {
 		commonSetup(`SELECT "id", "name" FROM "basic_records" WHERE id < ?`)
 		_, err := store.SelectOneWhere(db, `id < ?`, 3)
+		assert.ErrEqual(t, err, "datacenter on fire")
+	})
+
+	t.Run("using PreparedSelectQuery.SelectOne", func(t *testing.T) {
+		commonSetup(`SELECT "id", "name" FROM "basic_records" WHERE id < ?`)
+		query := store.MustPrepareSelectQueryWhere(`id < ?`)
+		_, err := query.SelectOne(db, 3)
 		assert.ErrEqual(t, err, "datacenter on fire")
 	})
 }
@@ -376,5 +478,10 @@ func TestSelectNotPossibleWithoutTableName(t *testing.T) {
 	t.Run("using Store.SelectOneWhere", func(t *testing.T) {
 		_, err := store.SelectOneWhere(db, `id < ?`, 3)
 		assert.ErrEqual(t, err, "cannot execute SelectOneWhere() because query could not be autogenerated")
+	})
+
+	t.Run("using PreparedSelectQuery", func(t *testing.T) {
+		_, err := store.PrepareSelectQueryWhere(`id < ?`)
+		assert.ErrEqual(t, err, "cannot execute PrepareSelectQueryWhere() because query could not be autogenerated")
 	})
 }

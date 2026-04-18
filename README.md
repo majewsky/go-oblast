@@ -20,12 +20,13 @@ The design goals, ordered by priority (most important comes first), are:
 - An intuitive API that encodes type safety through the use of generics.
 - A minimal amount of memory allocations in hot paths.
 - A minimal amount of CPU usage.
+- As few library dependencies as possible.
 
-As a surprising consequence, this meant having to eschew `context.Context` arguments.
+As a surprising consequence, this set of priorities forced this library to eschew `context.Context` arguments.
 Early benchmarking showed that replacing `QueryRow` with `QueryRowContext` increased allocations by up to 50% and memory allocated by up to 100%.
-The author of this library is still a fan of `context.Context` for things like HTTP requests to external services.
+The author of this library is still a fan of `context.Context` for things like HTTP requests to external services, where unpredictable delays make a structured cancellation facility vital.
 But this library optimizes for blazing fast OLTP workloads (with maybe a few OLAP queries every once in a while), where not being able to back out of a running query is not that big of a deal because query runtimes should always be short anyway.
-If in doubt, the lack of `context.Context` arguments can be counteracted by setting timeouts on your DB transactions.
+If in doubt, the lack of `context.Context` arguments can be counteracted by setting timeouts on your DB transactions during OLAP workloads.
 
 Explicit non-goals include:
 
