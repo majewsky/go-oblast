@@ -81,7 +81,7 @@ func (s preparedStatement) QueryRow(args ...any) *sql.Row {
 func (s Store[R]) Insert(db Handle, records ...R) ([]R, error) {
 	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
 	//       Any expression that does not depend on type R should be factored out into a reusable function.
-	if s.dialect.UsesLastInsertID() {
+	if s.dialect.UsesLastInsertID() || len(s.plan.Insert.ScanIndexes) == 0 {
 		return s.insertUsingLastInsertID(db, records)
 	} else {
 		return s.insertUsingReturningClause(db, records)
@@ -103,8 +103,11 @@ func (s Store[R]) insertUsingLastInsertID(db Handle, records []R) (returnedRecor
 	var (
 		argumentIndexes = s.plan.Insert.ArgumentIndexes
 		argumentSlots   = make([]any, len(argumentIndexes))
-		scanIndex       = s.plan.Insert.ScanIndexes[0]
+		scanIndex       []int
 	)
+	if len(s.plan.Insert.ScanIndexes) > 0 {
+		scanIndex = s.plan.Insert.ScanIndexes[0]
+	}
 	for idx := range records {
 		v := reflect.ValueOf(&records[idx]).Elem()
 		err := insertRecordUsingLastInsertID(v, idx, stmt, argumentIndexes, argumentSlots, scanIndex, s.plan)
@@ -120,26 +123,31 @@ func insertRecordUsingLastInsertID(v reflect.Value, recordIndex int, stmt prepar
 	for idx, index := range argumentIndexes {
 		argumentSlots[idx] = v.FieldByIndex(index).Interface()
 	}
-	scanField := v.FieldByIndex(scanIndex)
-	if !scanField.IsZero() {
-		return fmt.Errorf(`refusing to INSERT record with idx = %d that already has non-zero values in its "auto" columns`, recordIndex)
+	var scanField reflect.Value
+	if scanIndex != nil {
+		scanField = v.FieldByIndex(scanIndex)
+		if !scanField.IsZero() {
+			return fmt.Errorf(`refusing to INSERT record with idx = %d that already has non-zero values in its "auto" columns`, recordIndex)
+		}
 	}
 
 	result, err := stmt.Exec(argumentSlots...)
 	if err != nil {
 		return fmt.Errorf("during Exec() for record with idx = %d: %w", recordIndex, err)
 	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		return fmt.Errorf("during LastInsertId() for record with idx = %d: %w", recordIndex, err)
-	}
-	if plan.FillIDWithSetInt {
-		scanField.SetInt(id)
-	} else if plan.FillIDWithSetUint {
-		if id < 0 {
-			return fmt.Errorf("LastInsertId() = %d for record with idx = %d cannot be converted to uint", id, recordIndex)
+	if scanIndex != nil {
+		id, err := result.LastInsertId()
+		if err != nil {
+			return fmt.Errorf("during LastInsertId() for record with idx = %d: %w", recordIndex, err)
 		}
-		scanField.SetUint(uint64(id))
+		if plan.FillIDWithSetInt {
+			scanField.SetInt(id)
+		} else if plan.FillIDWithSetUint {
+			if id < 0 {
+				return fmt.Errorf("LastInsertId() = %d for record with idx = %d cannot be converted to uint", id, recordIndex)
+			}
+			scanField.SetUint(uint64(id))
+		}
 	}
 	return nil
 }

@@ -328,3 +328,48 @@ func TestInsertWithUnsignedIdField(t *testing.T) {
 		assert.ErrEqual(t, err, `refusing to INSERT record with idx = 0 that already has non-zero values in its "auto" columns`)
 	})
 }
+
+func TestInsertWithoutAutoColumns(t *testing.T) {
+	md := mock.NewDriver()
+	db := sql.OpenDB(md)
+
+	type relation struct {
+		FooID int64 `db:"foo_id"`
+		BarID int64 `db:"bar_id"`
+	}
+
+	// Even in dialects using RETURNING clause, this uses Exec() because there is nothing to return.
+	// Therefore, the test behavior with both dialects is identical except for the different placeholder syntax in the query.
+	runTest := func(store oblast.Store[relation], query string) {
+		md.ForQuery(query).
+			ExpectExecWithArgs(1, 2).
+			AndReturnRowsAffected(1)
+		md.ForQuery(query).
+			ExpectExecWithArgs(1, 3).
+			AndReturnRowsAffected(1)
+		relations := []relation{
+			{FooID: 1, BarID: 2},
+			{FooID: 1, BarID: 3},
+		}
+		insertedRelations := must.Return(store.Insert(db, relations...))(t)
+		assert.SliceEqual(t, insertedRelations, relations...)
+	}
+
+	t.Run("in dialect using LastInsertID", func(t *testing.T) {
+		store := oblast.MustNewStore[relation](
+			oblast.SqliteDialect(),
+			oblast.TableNameIs("foo_bar_relations"),
+			oblast.PrimaryKeyIs("foo_id", "bar_id"),
+		)
+		runTest(store, `INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES (?, ?)`)
+	})
+
+	t.Run("in dialect using RETURNING clause", func(t *testing.T) {
+		store := oblast.MustNewStore[relation](
+			oblast.PostgresDialect(),
+			oblast.TableNameIs("foo_bar_relations"),
+			oblast.PrimaryKeyIs("foo_id", "bar_id"),
+		)
+		runTest(store, `INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES ($1, $2)`)
+	})
+}
