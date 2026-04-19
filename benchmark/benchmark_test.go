@@ -268,10 +268,12 @@ func BenchmarkInsertAndDelete(b *testing.B) {
 			// prepare the functions that will be benched
 			insertAndDeleteWithOblast := func(b *testing.B) {
 				records := make([]OblastEntry, batchSize)
+				recordsForInsert := make([]*OblastEntry, batchSize)
 				for idx := range records {
 					records[idx] = OblastEntry{Message: "hello"}
+					recordsForInsert[idx] = &records[idx]
 				}
-				records = must.Return(store.Insert(db, records...))(b)
+				must.Succeed(b, store.Insert(db, recordsForInsert...))
 				for _, r := range records {
 					if r.ID == 0 {
 						b.Errorf("ID was not filled!")
@@ -388,10 +390,12 @@ func BenchmarkUpdate(b *testing.B) {
 			// prepare a bunch of records that we can update, in a reproducible way
 			_ = must.Return(db.Exec(`DELETE FROM entries`))
 			recordsForOblast := make([]OblastEntry, batchSize)
+			recordsForOblastForInsert := make([]*OblastEntry, batchSize)
 			for idx := range recordsForOblast {
 				recordsForOblast[idx] = OblastEntry{Message: "hello"}
+				recordsForOblastForInsert[idx] = &recordsForOblast[idx]
 			}
-			recordsForOblast = must.Return(store.Insert(db, recordsForOblast...))(b)
+			must.Succeed(b, store.Insert(db, recordsForOblastForInsert...))
 			recordsForGorp := make([]any, batchSize)
 			for idx, r := range recordsForOblast {
 				recordsForGorp[idx] = new(GorpEntry(r))
