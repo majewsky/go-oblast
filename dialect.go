@@ -4,6 +4,7 @@
 package oblast
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -37,6 +38,12 @@ type Dialect interface {
 	// If UsesLastInsertID is true, this is usually not needed and the empty
 	// string can be returned.
 	InsertSuffixForAutoColumns(columns []string) string
+
+	// UpsertClause generates an "ON CONFLICT" or similar clause
+	// that can be appended to an INSERT query to make it fall back to
+	// behave like UPDATE if a record with the same primary key already exists.
+	// This is only used for record types that have a primary key.
+	UpsertClause(pkColumns, otherColumns []string) string
 }
 
 // MysqlDialect is the dialect of MySQL and MariaDB databases.
@@ -51,6 +58,20 @@ func (mysqlDialect) QuoteIdentifier(name string) string                 { return
 func (mysqlDialect) UsesLastInsertID() bool                             { return true }
 func (mysqlDialect) InsertSuffixForAutoColumns(columns []string) string { return "" }
 
+func (d mysqlDialect) UpsertClause(pkColumns, otherColumns []string) string {
+	clauses := make([]string, max(1, len(otherColumns)))
+	if len(otherColumns) == 0 {
+		// we need at least one UPDATE clause; if there are no non-PK columns,
+		// we can just use one of the PK columns, updating those is a safe no-op
+		clauses[0] = fmt.Sprintf(`%[1]s = VALUES(%[1]s)`, d.QuoteIdentifier(pkColumns[0]))
+	} else {
+		for idx, name := range otherColumns {
+			clauses[idx] = fmt.Sprintf(`%[1]s = VALUES(%[1]s)`, d.QuoteIdentifier(name))
+		}
+	}
+	return ` ON DUPLICATE KEY UPDATE ` + strings.Join(clauses, ", ")
+}
+
 // PostgresDialect is the dialect of PostgreSQL databases.
 func PostgresDialect() Dialect {
 	return postgresDialect{}
@@ -62,12 +83,29 @@ func (postgresDialect) Placeholder(i int) string           { return "$" + strcon
 func (postgresDialect) QuoteIdentifier(name string) string { return `"` + name + `"` }
 func (postgresDialect) UsesLastInsertID() bool             { return false }
 
-func (p postgresDialect) InsertSuffixForAutoColumns(columns []string) string {
+func (d postgresDialect) InsertSuffixForAutoColumns(columns []string) string {
 	quotedColumns := make([]string, len(columns))
 	for idx, name := range columns {
-		quotedColumns[idx] = p.QuoteIdentifier(name)
+		quotedColumns[idx] = d.QuoteIdentifier(name)
 	}
 	return ` RETURNING ` + strings.Join(quotedColumns, ", ")
+}
+
+func (d postgresDialect) UpsertClause(pkColumns, otherColumns []string) string {
+	quotedPkColumns := make([]string, len(pkColumns))
+	for idx, name := range pkColumns {
+		quotedPkColumns[idx] = d.QuoteIdentifier(name)
+	}
+	clauses := make([]string, len(otherColumns))
+	for idx, name := range otherColumns {
+		clauses[idx] = fmt.Sprintf(`%[1]s = EXCLUDED.%[1]s`, d.QuoteIdentifier(name))
+	}
+	if len(otherColumns) == 0 {
+		return fmt.Sprintf(` ON CONFLICT (%s) DO NOTHING`, strings.Join(quotedPkColumns, ", "))
+	} else {
+		return fmt.Sprintf(` ON CONFLICT (%s) DO UPDATE SET %s`,
+			strings.Join(quotedPkColumns, ", "), strings.Join(clauses, ", "))
+	}
 }
 
 // SqliteDialect is the dialect of SQLite databases.
@@ -81,3 +119,6 @@ func (sqliteDialect) Placeholder(_ int) string                           { retur
 func (sqliteDialect) QuoteIdentifier(name string) string                 { return `"` + name + `"` }
 func (sqliteDialect) UsesLastInsertID() bool                             { return true }
 func (sqliteDialect) InsertSuffixForAutoColumns(columns []string) string { return "" }
+func (sqliteDialect) UpsertClause(pkColumns, otherColumns []string) string {
+	return postgresDialect{}.UpsertClause(pkColumns, otherColumns)
+}
