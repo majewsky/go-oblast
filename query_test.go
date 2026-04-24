@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	"go.xyrillian.de/oblast"
-	"go.xyrillian.de/oblast/internal/assert"
-	"go.xyrillian.de/oblast/internal/mock"
-	"go.xyrillian.de/oblast/internal/must"
+	"go.xyrillian.de/oblast/internal/testhelpers/assert"
+	"go.xyrillian.de/oblast/internal/testhelpers/mock"
+	"go.xyrillian.de/oblast/internal/testhelpers/must"
 )
 
 func TestInsertBasic(t *testing.T) {

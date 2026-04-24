@@ -15,7 +15,7 @@ static-check: FORCE
 benchmark: FORCE
 	@cd benchmark && go test -bench . -benchmem .
 
-GO_COVERPKGS := $(shell go list ./... | tr '\n' , | sed 's/,$$//')
+GO_COVERPKGS := $(shell go list ./... | grep -vw testhelpers | tr '\n' , | sed 's/,$$//')
 GO_TESTPKGS := $(shell go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./...)
 
 build/cover.out: FORCE

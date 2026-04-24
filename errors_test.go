@@ -7,7 +7,7 @@ import (
 	"errors"
 	"testing"
 
-	"go.xyrillian.de/oblast/internal/assert"
+	"go.xyrillian.de/oblast/internal/testhelpers/assert"
 )
 
 type fooError struct{}

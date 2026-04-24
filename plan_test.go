@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"go.xyrillian.de/oblast/internal/assert"
+	"go.xyrillian.de/oblast/internal/testhelpers/assert"
 )
 
 func TestPlanFieldTraversal(t *testing.T) {
