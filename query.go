@@ -85,6 +85,12 @@ func (s Store[R]) Insert(db Handle, records ...*R) error {
 	if err != nil {
 		return err
 	}
+	return s.insertUsing(stmt, db, records)
+}
+
+func (s Store[R]) insertUsing(stmt preparedStatement, db Handle, records []*R) error {
+	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
+	//       Any expression that does not depend on type R should be factored out into a reusable function.
 
 	var (
 		argumentIndexes = s.plan.Insert.ArgumentIndexes
@@ -93,8 +99,8 @@ func (s Store[R]) Insert(db Handle, records ...*R) error {
 		scanSlots       = make([]any, len(scanIndexes))
 	)
 
-	for idx := range records {
-		v := reflect.ValueOf(records[idx]).Elem()
+	for idx, r := range records {
+		v := reflect.ValueOf(r).Elem()
 		err := insertRecord(v, idx, stmt, argumentIndexes, argumentSlots, scanIndexes, scanSlots)
 		if err != nil {
 			return newIOError(err, "Stmt.Close", stmt.Close())
@@ -210,4 +216,86 @@ func deleteRecord(v reflect.Value, recordIndex int, stmt preparedStatement, argu
 		return fmt.Errorf("while deleting record with idx = %d: %w", recordIndex, err)
 	}
 	return nil
+}
+
+// Upsert executes either an SQL INSERT or UPDATE statement for each of the provided records,
+// based on whether the record already exists in the DB or not.
+//
+//   - For record types that have fields declared with the "auto" tag, INSERT is chosen iff those fields hold zero values.
+//     Returns an error if only some of the respective fields hold zero values while others don't.
+//     Returns an error if [NewStore] was called without the [TableNameIs] or [PrimaryKeyIs] options, which are both required to generate the respective queries for this method.
+//   - For record types that do not have fields declared with the "auto" tag, an INSERT ... ON CONFLICT statement is used.
+//     Returns an error if [NewStore] was called without the [TableNameIs] option, which is required to generate a query for this method.
+func (s Store[R]) Upsert(db Handle, records ...*R) error {
+	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
+	//       Any expression that does not depend on type R should be factored out into a reusable function.
+
+	if len(s.plan.AutoColumnNames) == 0 {
+		stmt, err := prepare(db, s.plan.Upsert.Query, "Upsert", len(records))
+		if err != nil {
+			return err
+		}
+		return s.insertUsing(stmt, db, records)
+	}
+
+	// TODO: respect PrepareThreshold (or not? may be too much bookkeeping overhead for not a whole lot of benefit)
+	insertStmt, err := prepare(db, s.plan.Insert.Query, "Insert", 0)
+	if err != nil {
+		return err
+	}
+	updateStmt, err := prepare(db, s.plan.Update.Query, "Update", 0)
+	if err != nil {
+		return err
+	}
+
+	var (
+		insertArgumentIndexes = s.plan.Insert.ArgumentIndexes
+		insertArgumentSlots   = make([]any, len(insertArgumentIndexes))
+		insertScanIndexes     = s.plan.Insert.ScanIndexes
+		insertScanSlots       = make([]any, len(insertScanIndexes))
+		updateArgumentIndexes = s.plan.Update.ArgumentIndexes
+		updateArgumentSlots   = make([]any, len(updateArgumentIndexes))
+	)
+
+	for idx, r := range records {
+		v := reflect.ValueOf(r).Elem()
+		isInsert, err := upsertDecideStrategy(v, idx, insertScanIndexes)
+		if err != nil {
+			return err
+		}
+
+		if isInsert {
+			err = insertRecord(v, idx, insertStmt, insertArgumentIndexes, insertArgumentSlots, insertScanIndexes, insertScanSlots)
+		} else {
+			var rowsAffected int64
+			rowsAffected, err = updateRecord(v, idx, updateStmt, updateArgumentIndexes, updateArgumentSlots)
+			if err == nil && rowsAffected == 0 {
+				err = MissingRecordError[R]{*r, s.plan}
+			}
+		}
+		if err != nil {
+			err = newIOError(err, "InsertStmt.Close", insertStmt.Close())
+			err = newIOError(err, "UpdateStmt.Close", updateStmt.Close())
+			return err
+		}
+	}
+
+	err = newIOError(err, "InsertStmt.Close", insertStmt.Close())
+	err = newIOError(err, "UpdateStmt.Close", updateStmt.Close())
+	return err
+}
+
+func upsertDecideStrategy(v reflect.Value, recordIndex int, scanIndexes [][]int) (isInsert bool, err error) {
+	var isUpdate bool
+	for _, index := range scanIndexes {
+		if v.FieldByIndex(index).IsZero() {
+			isInsert = true
+		} else {
+			isUpdate = true
+		}
+	}
+	if isInsert && isUpdate {
+		return false, fmt.Errorf(`cannot decide whether to INSERT or UPDATE record with idx = %d: some "auto" columns are zero, others are not`, recordIndex)
+	}
+	return isInsert, nil
 }
