@@ -125,6 +125,7 @@ func insertRecord(v reflect.Value, recordIndex int, stmt preparedStatement, argu
 	if len(scanSlots) == 0 {
 		_, err = stmt.Exec(argumentSlots...)
 	} else {
+		// TODO: using QueryRow for inserting is somehow extremely expensive in terms of allocs; other libraries are doing better by limiting themselves to Exec() + LastInsertId()
 		err = stmt.QueryRow(argumentSlots...).Scan(scanSlots...)
 	}
 	if err != nil {
