@@ -27,18 +27,6 @@ type Dialect interface {
 	// in order to avoid the name from being interpreted as a keyword.
 	QuoteIdentifier(name string) string
 
-	// UsesLastInsertID returns whether values for auto-generated columns are
-	// collected from LastInsertID(). If false, the INSERT query must instead
-	// yield a result row containing the values.
-	UsesLastInsertID() bool
-
-	// InsertSuffixForAutoColumns is appended to `INSERT (...) VALUES (...)`
-	// statements to collect values for auto-filled columns.
-	//
-	// If UsesLastInsertID is true, this is usually not needed and the empty
-	// string can be returned.
-	InsertSuffixForAutoColumns(columns []string) string
-
 	// UpsertClause generates an "ON CONFLICT" or similar clause
 	// that can be appended to an INSERT query to make it fall back to
 	// behave like UPDATE if a record with the same primary key already exists.
@@ -46,19 +34,20 @@ type Dialect interface {
 	UpsertClause(pkColumns, otherColumns []string) string
 }
 
-// MysqlDialect is the dialect of MySQL and MariaDB databases.
-func MysqlDialect() Dialect {
-	return mysqlDialect{}
+// MariaDBDialect is the dialect of MariaDB 10.5+ databases.
+//
+// This dialect does NOT support MySQL, as well as ancient MariaDB versions (10.5 was released 2020-06-24),
+// because those do not understand the "INSERT ... RETURNING" syntax.
+func MariaDBDialect() Dialect {
+	return mariadbDialect{}
 }
 
-type mysqlDialect struct{}
+type mariadbDialect struct{}
 
-func (mysqlDialect) Placeholder(_ int) string                           { return "?" }
-func (mysqlDialect) QuoteIdentifier(name string) string                 { return "`" + name + "`" }
-func (mysqlDialect) UsesLastInsertID() bool                             { return true }
-func (mysqlDialect) InsertSuffixForAutoColumns(columns []string) string { return "" }
+func (mariadbDialect) Placeholder(_ int) string           { return "?" }
+func (mariadbDialect) QuoteIdentifier(name string) string { return "`" + name + "`" }
 
-func (d mysqlDialect) UpsertClause(pkColumns, otherColumns []string) string {
+func (d mariadbDialect) UpsertClause(pkColumns, otherColumns []string) string {
 	clauses := make([]string, max(1, len(otherColumns)))
 	if len(otherColumns) == 0 {
 		// we need at least one UPDATE clause; if there are no non-PK columns,
@@ -81,15 +70,6 @@ type postgresDialect struct{}
 
 func (postgresDialect) Placeholder(i int) string           { return "$" + strconv.Itoa(i+1) }
 func (postgresDialect) QuoteIdentifier(name string) string { return `"` + name + `"` }
-func (postgresDialect) UsesLastInsertID() bool             { return false }
-
-func (d postgresDialect) InsertSuffixForAutoColumns(columns []string) string {
-	quotedColumns := make([]string, len(columns))
-	for idx, name := range columns {
-		quotedColumns[idx] = d.QuoteIdentifier(name)
-	}
-	return ` RETURNING ` + strings.Join(quotedColumns, ", ")
-}
 
 func (d postgresDialect) UpsertClause(pkColumns, otherColumns []string) string {
 	quotedPkColumns := make([]string, len(pkColumns))
@@ -108,17 +88,18 @@ func (d postgresDialect) UpsertClause(pkColumns, otherColumns []string) string {
 	}
 }
 
-// SqliteDialect is the dialect of SQLite databases.
+// SqliteDialect is the dialect of SQLite 3.24.0+ databases.
+//
+// This dialect does NOT support ancient SQLite versions (3.24.0 was released 2018-06-04)
+// that do not understand the "INSERT ... RETURNING" syntax.
 func SqliteDialect() Dialect {
 	return sqliteDialect{}
 }
 
 type sqliteDialect struct{}
 
-func (sqliteDialect) Placeholder(_ int) string                           { return "?" }
-func (sqliteDialect) QuoteIdentifier(name string) string                 { return `"` + name + `"` }
-func (sqliteDialect) UsesLastInsertID() bool                             { return true }
-func (sqliteDialect) InsertSuffixForAutoColumns(columns []string) string { return "" }
+func (sqliteDialect) Placeholder(_ int) string           { return "?" }
+func (sqliteDialect) QuoteIdentifier(name string) string { return `"` + name + `"` }
 func (sqliteDialect) UpsertClause(pkColumns, otherColumns []string) string {
 	return postgresDialect{}.UpsertClause(pkColumns, otherColumns)
 }

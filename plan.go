@@ -26,10 +26,6 @@ type plan struct {
 	// Indexes of pointer-typed fields that need to be initialized before scanning into this type.
 	IndexesOfTransparentPointerStructs [][]int
 
-	// In dialects with UsesLastInsertID() == true, whether the ID column must be written with reflect.Value.SetInt() or reflect.Value.SetUint().
-	FillIDWithSetUint bool
-	FillIDWithSetInt  bool
-
 	// Planned queries.
 	Select plannedQuery // only `SELECT ... FROM ... WHERE `; user supplies the rest during Select{,One}Where()
 	Insert plannedQuery
@@ -171,32 +167,6 @@ func buildPlan(t reflect.Type, dialect Dialect, opts planOpts) (plan, error) {
 		}
 	}
 
-	// validation: LastInsertID() only works if at most one column is auto-filled, and if that column holds an integer type
-	if dialect.UsesLastInsertID() {
-		switch len(p.AutoColumnNames) {
-		case 0:
-			// nothing to check
-		case 1:
-			columnName := p.AutoColumnNames[0]
-			field := t.FieldByIndex(p.IndexByColumnName[columnName])
-			switch field.Type.Kind() { //nolint:exhaustive // false positive
-			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				p.FillIDWithSetInt = true
-			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-				p.FillIDWithSetUint = true
-			default:
-				return plan{}, fmt.Errorf(
-					"column %q is marked as auto-filled, but this SQL dialect only supports auto-filling struct fields with integer types",
-					columnName)
-			}
-		default:
-			return plan{}, fmt.Errorf(
-				"multiple columns are marked as auto-filled (%s), but this SQL dialect only supports at most one per table",
-				strings.Join(p.AutoColumnNames, ", "),
-			)
-		}
-	}
-
 	// prepare query strings
 	p.Select = p.buildSelectQueryIfPossible(dialect)
 	p.Insert = p.buildInsertQueryIfPossible(dialect, false)
@@ -277,8 +247,6 @@ func (p plan) buildInsertQueryIfPossible(dialect Dialect, isUpsert bool) planned
 		quotedPlaceholders[idx] = dialect.Placeholder(idx)
 	}
 	if len(p.AutoColumnNames) > 0 {
-		// NOTE: This is filled even if dialect.UsesLastInsertID() is false.
-		// We need this index to find the right value on which to run SetInt() or SetUint().
 		scanIndexes = make([][]int, len(p.AutoColumnNames))
 		for idx, columnName := range p.AutoColumnNames {
 			scanIndexes[idx] = p.IndexByColumnName[columnName]
@@ -295,7 +263,11 @@ func (p plan) buildInsertQueryIfPossible(dialect Dialect, isUpsert bool) planned
 		query += dialect.UpsertClause(p.PrimaryKeyColumnNames, p.getNonPrimaryKeyColumnNames())
 	}
 	if len(p.AutoColumnNames) > 0 {
-		query += dialect.InsertSuffixForAutoColumns(p.AutoColumnNames)
+		quotedAutoColumns := make([]string, len(p.AutoColumnNames))
+		for idx, name := range p.AutoColumnNames {
+			quotedAutoColumns[idx] = dialect.QuoteIdentifier(name)
+		}
+		query += ` RETURNING ` + strings.Join(quotedAutoColumns, ", ")
 	}
 	return plannedQuery{query, argumentIndexes, scanIndexes}
 }

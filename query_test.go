@@ -14,7 +14,7 @@ import (
 	"go.xyrillian.de/oblast/internal/must"
 )
 
-func TestInsertBasicUsingLastInsertId(t *testing.T) {
+func TestInsertBasic(t *testing.T) {
 	md := mock.NewDriver()
 	db := sql.OpenDB(md)
 
@@ -34,39 +34,7 @@ func TestInsertBasicUsingLastInsertId(t *testing.T) {
 			records := make([]*basicRecord, batchSize)
 			for idx := range batchSize {
 				records[idx] = &basicRecord{Name: "new"}
-				md.ForQuery(`INSERT INTO "basic_records" ("name") VALUES (?)`).
-					ExpectExecWithArgs("new").
-					AndReturnLastInsertId(int64(42 + idx)).
-					AndReturnRowsAffected(1)
-			}
-			must.Succeed(t, store.Insert(db, records...))
-			for idx, r := range records {
-				assert.Equal(t, r.ID, int64(42+idx))
-			}
-		})
-	}
-}
-
-func TestInsertBasicUsingReturningClause(t *testing.T) {
-	md := mock.NewDriver()
-	db := sql.OpenDB(md)
-
-	type basicRecord struct {
-		ID   int64  `db:"id,auto"`
-		Name string `db:"name"`
-	}
-	store := oblast.MustNewStore[basicRecord](
-		oblast.PostgresDialect(),
-		oblast.TableNameIs("basic_records"),
-		oblast.PrimaryKeyIs("id"),
-	)
-
-	for _, batchSize := range []int{1, oblast.PrepareThreshold - 1, oblast.PrepareThreshold + 1} {
-		t.Run("N="+strconv.Itoa(batchSize), func(t *testing.T) {
-			records := make([]*basicRecord, batchSize)
-			for idx := range batchSize {
-				records[idx] = &basicRecord{Name: "new"}
-				md.ForQuery(`INSERT INTO "basic_records" ("name") VALUES ($1) RETURNING "id"`).
+				md.ForQuery(`INSERT INTO "basic_records" ("name") VALUES (?) RETURNING "id"`).
 					ExpectQueryWithArgs("new").
 					AndReturnColumns("id").
 					WithRow(int64(42 + idx))
@@ -185,9 +153,9 @@ func TestWriteQueriesFailDuringPrepare(t *testing.T) {
 		}
 
 		err := store.Insert(db, recordsForInsert...)
-		baseError := `unexpected query: INSERT INTO "basic_records" ("name") VALUES (?)`
+		baseError := `unexpected query: INSERT INTO "basic_records" ("name") VALUES (?) RETURNING "id"`
 		if batchSize < oblast.PrepareThreshold {
-			assert.ErrEqual(t, err, "during Exec() for record with idx = 0: "+baseError)
+			assert.ErrEqual(t, err, "while inserting record with idx = 0: "+baseError)
 		} else {
 			assert.ErrEqual(t, err, "during Prepare(): "+baseError)
 		}
@@ -195,7 +163,7 @@ func TestWriteQueriesFailDuringPrepare(t *testing.T) {
 		err = store.Update(db, records...)
 		baseError = `unexpected query: UPDATE "basic_records" SET "name" = ? WHERE "id" = ?`
 		if batchSize < oblast.PrepareThreshold {
-			assert.ErrEqual(t, err, "during Exec() for record with idx = 0: "+baseError)
+			assert.ErrEqual(t, err, "while updating record with idx = 0: "+baseError)
 		} else {
 			assert.ErrEqual(t, err, "during Prepare(): "+baseError)
 		}
@@ -203,28 +171,7 @@ func TestWriteQueriesFailDuringPrepare(t *testing.T) {
 		err = store.Delete(db, records...)
 		baseError = `unexpected query: DELETE FROM "basic_records" WHERE "id" = ?`
 		if batchSize < oblast.PrepareThreshold {
-			assert.ErrEqual(t, err, "during Exec() for record with idx = 0: "+baseError)
-		} else {
-			assert.ErrEqual(t, err, "during Prepare(): "+baseError)
-		}
-	}
-
-	store = oblast.MustNewStore[basicRecord](
-		oblast.PostgresDialect(), // for test coverage of insertUsingReturningClause()
-		oblast.TableNameIs("basic_records"),
-		oblast.PrimaryKeyIs("id"),
-	)
-
-	for _, batchSize := range []int{1, oblast.PrepareThreshold - 1, oblast.PrepareThreshold + 1} {
-		recordsForInsert := make([]*basicRecord, batchSize)
-		for idx := range batchSize {
-			recordsForInsert[idx] = &basicRecord{Name: "foo"}
-		}
-
-		err := store.Insert(db, recordsForInsert...)
-		baseError := `unexpected query: INSERT INTO "basic_records" ("name") VALUES ($1) RETURNING "id"`
-		if batchSize < oblast.PrepareThreshold {
-			assert.ErrEqual(t, err, "during QueryRow() for record with idx = 0: "+baseError)
+			assert.ErrEqual(t, err, "while deleting record with idx = 0: "+baseError)
 		} else {
 			assert.ErrEqual(t, err, "during Prepare(): "+baseError)
 		}
@@ -254,83 +201,29 @@ func TestUpdateFailsOnMissingRecord(t *testing.T) {
 	assert.Equal(t, hasCorrectType, true)
 }
 
-func TestInsertWithUnsignedIdField(t *testing.T) {
+func TestInsertFailsOnFilledAutoField(t *testing.T) {
 	md := mock.NewDriver()
 	db := sql.OpenDB(md)
 
 	type basicRecord struct {
-		ID   uint64 `db:"id,auto"` // not int64!
+		ID   int64  `db:"id,auto"`
 		Name string `db:"name"`
 	}
+	store := oblast.MustNewStore[basicRecord](
+		oblast.SqliteDialect(),
+		oblast.TableNameIs("basic_records"),
+		oblast.PrimaryKeyIs("id"),
+	)
 
-	t.Run("using LastInsertID", func(t *testing.T) {
-		store := oblast.MustNewStore[basicRecord](
-			oblast.SqliteDialect(),
-			oblast.TableNameIs("basic_records"),
-			oblast.PrimaryKeyIs("id"),
-		)
-
-		// success case
-		md.ForQuery(`INSERT INTO "basic_records" ("name") VALUES (?)`).
-			ExpectExecWithArgs("first").
-			AndReturnLastInsertId(42).
-			AndReturnRowsAffected(1)
-		record := basicRecord{Name: "first"}
-		must.Succeed(t, store.Insert(db, &record))
-		assert.Equal(t, record, basicRecord{ID: 42, Name: "first"})
-
-		// error case: negative ID cannot be cast to uint64
-		md.ForQuery(`INSERT INTO "basic_records" ("name") VALUES (?)`).
-			ExpectExecWithArgs("second").
-			AndReturnLastInsertId(-42).
-			AndReturnRowsAffected(1)
-		err := store.Insert(db, &basicRecord{Name: "second"})
-		assert.ErrEqual(t, err, "LastInsertId() = -42 for record with idx = 0 cannot be converted to uint")
-
-		// error case: cannot Insert() a record that already has its ID field filled
-		md.ForQuery(`INSERT INTO "basic_records" ("name") VALUES (?)`).
-			ExpectExecWithArgs("third").
-			AndReturnLastInsertId(42).
-			AndReturnRowsAffected(1)
-		err = store.Insert(db, &basicRecord{ID: 23, Name: "third"})
-		assert.ErrEqual(t, err, `refusing to INSERT record with idx = 0 that already has non-zero values in its "auto" columns`)
-	})
-
-	t.Run("using RETURNING clause", func(t *testing.T) {
-		store := oblast.MustNewStore[basicRecord](
-			oblast.PostgresDialect(),
-			oblast.TableNameIs("basic_records"),
-			oblast.PrimaryKeyIs("id"),
-		)
-
-		// success case
-		md.ForQuery(`INSERT INTO "basic_records" ("name") VALUES ($1) RETURNING "id"`).
-			ExpectQueryWithArgs("first").
-			AndReturnColumns("id").
-			WithRow(42)
-		record := basicRecord{Name: "first"}
-		must.Succeed(t, store.Insert(db, &record))
-		assert.Equal(t, record, basicRecord{ID: 42, Name: "first"})
-
-		// error case: negative ID cannot be cast to uint64
-		md.ForQuery(`INSERT INTO "basic_records" ("name") VALUES ($1) RETURNING "id"`).
-			ExpectQueryWithArgs("second").
-			AndReturnColumns("id").
-			WithRow(-42)
-		err := store.Insert(db, &basicRecord{Name: "second"})
-		assert.ErrEqual(t, err, `during QueryRow() for record with idx = 0: sql: Scan error on column index 0, name "id": converting driver.Value type int ("-42") to a uint64: invalid syntax`)
-
-		// error case: cannot Insert() a record that already has its ID field filled
-		md.ForQuery(`INSERT INTO "basic_records" ("name") VALUES ($1) RETURNING "id"`).
-			ExpectQueryWithArgs("third").
-			AndReturnColumns("id").
-			WithRow(42)
-		err = store.Insert(db, &basicRecord{ID: 23, Name: "third"})
-		assert.ErrEqual(t, err, `refusing to INSERT record with idx = 0 that already has non-zero values in its "auto" columns`)
-	})
+	md.ForQuery(`INSERT INTO "basic_records" ("name") VALUES (?) RETURNING "id"`).
+		ExpectQueryWithArgs("existing").
+		AndReturnColumns("id").
+		WithRow(42)
+	err := store.Insert(db, &basicRecord{ID: 23, Name: "third"})
+	assert.ErrEqual(t, err, `refusing to INSERT record with idx = 0 that already has non-zero values in its "auto" columns`)
 }
 
-func TestInsertWithoutAutoColumns(t *testing.T) {
+func TestInsertWithNoAutoColumns(t *testing.T) {
 	md := mock.NewDriver()
 	db := sql.OpenDB(md)
 
@@ -338,42 +231,14 @@ func TestInsertWithoutAutoColumns(t *testing.T) {
 		FooID int64 `db:"foo_id"`
 		BarID int64 `db:"bar_id"`
 	}
+	store := oblast.MustNewStore[relation](
+		oblast.SqliteDialect(),
+		oblast.TableNameIs("foo_bar_relations"),
+		oblast.PrimaryKeyIs("foo_id", "bar_id"),
+	)
 
-	// Even in dialects using RETURNING clause, this uses Exec() because there is nothing to return.
-	// Therefore, the test behavior with both dialects is identical except for the different placeholder syntax in the query.
-	runTest := func(store oblast.Store[relation], query string) {
-		md.ForQuery(query).
-			ExpectExecWithArgs(1, 2).
-			AndReturnRowsAffected(1)
-		md.ForQuery(query).
-			ExpectExecWithArgs(1, 3).
-			AndReturnRowsAffected(1)
-		relations := []*relation{
-			{FooID: 1, BarID: 2},
-			{FooID: 1, BarID: 3},
-		}
-		must.Succeed(t, store.Insert(db, relations...))
-		assert.SliceDeepEqual(t, relations,
-			&relation{FooID: 1, BarID: 2},
-			&relation{FooID: 1, BarID: 3},
-		)
-	}
-
-	t.Run("in dialect using LastInsertID", func(t *testing.T) {
-		store := oblast.MustNewStore[relation](
-			oblast.SqliteDialect(),
-			oblast.TableNameIs("foo_bar_relations"),
-			oblast.PrimaryKeyIs("foo_id", "bar_id"),
-		)
-		runTest(store, `INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES (?, ?)`)
-	})
-
-	t.Run("in dialect using RETURNING clause", func(t *testing.T) {
-		store := oblast.MustNewStore[relation](
-			oblast.PostgresDialect(),
-			oblast.TableNameIs("foo_bar_relations"),
-			oblast.PrimaryKeyIs("foo_id", "bar_id"),
-		)
-		runTest(store, `INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES ($1, $2)`)
-	})
+	md.ForQuery(`INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES (?, ?)`).
+		ExpectExecWithArgs(23, 42).
+		AndReturnRowsAffected(1)
+	must.Succeed(t, store.Insert(db, &relation{23, 42}))
 }

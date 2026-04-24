@@ -80,80 +80,6 @@ func (s preparedStatement) QueryRow(args ...any) *sql.Row {
 func (s Store[R]) Insert(db Handle, records ...*R) error {
 	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
 	//       Any expression that does not depend on type R should be factored out into a reusable function.
-	if s.dialect.UsesLastInsertID() || len(s.plan.Insert.ScanIndexes) == 0 {
-		return s.insertUsingLastInsertID(db, records)
-	} else {
-		return s.insertUsingReturningClause(db, records)
-	}
-}
-
-func (s Store[R]) insertUsingLastInsertID(db Handle, records []*R) (returnedError error) {
-	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
-	//       Any expression that does not depend on type R should be factored out into a reusable function.
-
-	stmt, err := prepare(db, s.plan.Insert.Query, "Insert", len(records))
-	if err != nil {
-		return err
-	}
-	defer func() {
-		returnedError = newIOError(returnedError, "Stmt.Close", stmt.Close())
-	}()
-
-	var (
-		argumentIndexes = s.plan.Insert.ArgumentIndexes
-		argumentSlots   = make([]any, len(argumentIndexes))
-		scanIndex       []int
-	)
-	if len(s.plan.Insert.ScanIndexes) > 0 {
-		scanIndex = s.plan.Insert.ScanIndexes[0]
-	}
-	for idx := range records {
-		v := reflect.ValueOf(records[idx]).Elem()
-		err := insertRecordUsingLastInsertID(v, idx, stmt, argumentIndexes, argumentSlots, scanIndex, s.plan)
-		if err != nil {
-			return newIOError(err, "Stmt.Close", stmt.Close())
-		}
-	}
-
-	return newIOError(nil, "Stmt.Close", stmt.Close())
-}
-
-func insertRecordUsingLastInsertID(v reflect.Value, recordIndex int, stmt preparedStatement, argumentIndexes [][]int, argumentSlots []any, scanIndex []int, plan plan) error {
-	for idx, index := range argumentIndexes {
-		argumentSlots[idx] = v.FieldByIndex(index).Interface()
-	}
-	var scanField reflect.Value
-	if scanIndex != nil {
-		scanField = v.FieldByIndex(scanIndex)
-		if !scanField.IsZero() {
-			return fmt.Errorf(`refusing to INSERT record with idx = %d that already has non-zero values in its "auto" columns`, recordIndex)
-		}
-	}
-
-	result, err := stmt.Exec(argumentSlots...)
-	if err != nil {
-		return fmt.Errorf("during Exec() for record with idx = %d: %w", recordIndex, err)
-	}
-	if scanIndex != nil {
-		id, err := result.LastInsertId()
-		if err != nil {
-			return fmt.Errorf("during LastInsertId() for record with idx = %d: %w", recordIndex, err)
-		}
-		if plan.FillIDWithSetInt {
-			scanField.SetInt(id)
-		} else if plan.FillIDWithSetUint {
-			if id < 0 {
-				return fmt.Errorf("LastInsertId() = %d for record with idx = %d cannot be converted to uint", id, recordIndex)
-			}
-			scanField.SetUint(uint64(id))
-		}
-	}
-	return nil
-}
-
-func (s Store[R]) insertUsingReturningClause(db Handle, records []*R) (returnedError error) {
-	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
-	//       Any expression that does not depend on type R should be factored out into a reusable function.
 
 	stmt, err := prepare(db, s.plan.Insert.Query, "Insert", len(records))
 	if err != nil {
@@ -169,7 +95,7 @@ func (s Store[R]) insertUsingReturningClause(db Handle, records []*R) (returnedE
 
 	for idx := range records {
 		v := reflect.ValueOf(records[idx]).Elem()
-		err := insertRecordUsingReturningClause(v, idx, stmt, argumentIndexes, argumentSlots, scanIndexes, scanSlots)
+		err := insertRecord(v, idx, stmt, argumentIndexes, argumentSlots, scanIndexes, scanSlots)
 		if err != nil {
 			return newIOError(err, "Stmt.Close", stmt.Close())
 		}
@@ -178,7 +104,7 @@ func (s Store[R]) insertUsingReturningClause(db Handle, records []*R) (returnedE
 	return newIOError(nil, "Stmt.Close", stmt.Close())
 }
 
-func insertRecordUsingReturningClause(v reflect.Value, recordIndex int, stmt preparedStatement, argumentIndexes [][]int, argumentSlots []any, scanIndexes [][]int, scanSlots []any) error {
+func insertRecord(v reflect.Value, recordIndex int, stmt preparedStatement, argumentIndexes [][]int, argumentSlots []any, scanIndexes [][]int, scanSlots []any) error {
 	for idx, index := range argumentIndexes {
 		argumentSlots[idx] = v.FieldByIndex(index).Interface()
 	}
@@ -189,9 +115,14 @@ func insertRecordUsingReturningClause(v reflect.Value, recordIndex int, stmt pre
 		}
 		scanSlots[idx] = f.Addr().Interface()
 	}
-	err := stmt.QueryRow(argumentSlots...).Scan(scanSlots...)
+	var err error
+	if len(scanSlots) == 0 {
+		_, err = stmt.Exec(argumentSlots...)
+	} else {
+		err = stmt.QueryRow(argumentSlots...).Scan(scanSlots...)
+	}
 	if err != nil {
-		return fmt.Errorf("during QueryRow() for record with idx = %d: %w", recordIndex, err)
+		return fmt.Errorf("while inserting record with idx = %d: %w", recordIndex, err)
 	}
 	return nil
 }
@@ -233,7 +164,7 @@ func updateRecord(v reflect.Value, recordIndex int, stmt preparedStatement, argu
 	}
 	result, err := stmt.Exec(argumentSlots...)
 	if err != nil {
-		return 0, fmt.Errorf("during Exec() for record with idx = %d: %w", recordIndex, err)
+		return 0, fmt.Errorf("while updating record with idx = %d: %w", recordIndex, err)
 	}
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
@@ -276,7 +207,7 @@ func deleteRecord(v reflect.Value, recordIndex int, stmt preparedStatement, argu
 	}
 	_, err := stmt.Exec(argumentSlots...)
 	if err != nil {
-		return fmt.Errorf("during Exec() for record with idx = %d: %w", recordIndex, err)
+		return fmt.Errorf("while deleting record with idx = %d: %w", recordIndex, err)
 	}
 	return nil
 }
