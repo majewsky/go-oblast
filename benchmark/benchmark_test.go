@@ -23,7 +23,7 @@ import (
 // This is not a real benchmark (obviously).
 // Its purpose is to be the first line that is printed, while having one of the longest names,
 // so that all other results are aligned with it and the table looks nice.
-func BenchmarkHeadingHeadingHeadingHeadingHeadingHeadingHeading(b *testing.B) {
+func BenchmarkHeadingHeadingHeadingHeadingHeadingHeadingHeadingHeading(b *testing.B) {
 	for b.Loop() {
 		time.Sleep(time.Microsecond)
 	}
@@ -312,7 +312,7 @@ func BenchmarkInsertAndDelete(b *testing.B) {
 				assert.Equal(b, result.RowsAffected, int64(batchSize))
 			}
 
-			insertAndDeleteWithStraightSqlite := func(b *testing.B) {
+			insertAndDeleteWithStraightExec := func(b *testing.B) {
 				ids := make([]int64, batchSize)
 				for idx := range ids {
 					result := must.Return(db.Exec(`INSERT INTO entries (message) VALUES (?)`, "hello"))(b)
@@ -323,13 +323,37 @@ func BenchmarkInsertAndDelete(b *testing.B) {
 				}
 			}
 
-			insertAndDeleteWithPreparedSqlite := func(b *testing.B) {
+			insertAndDeleteWithPreparedExec := func(b *testing.B) {
 				ids := make([]int64, batchSize)
 				stmtInsert := must.Return(db.Prepare(`INSERT INTO entries (message) VALUES (?)`))(b)
 				defer stmtInsert.Close()
 				for idx := range ids {
 					result := must.Return(stmtInsert.Exec("hello"))(b)
 					ids[idx] = must.Return(result.LastInsertId())(b)
+				}
+				stmtDelete := must.Return(db.Prepare(`DELETE FROM entries WHERE id = ?`))(b)
+				defer stmtDelete.Close()
+				for _, id := range ids {
+					_ = must.Return(stmtDelete.Exec(id))(b)
+				}
+			}
+
+			insertAndDeleteWithStraightQueryRow := func(b *testing.B) {
+				ids := make([]int64, batchSize)
+				for idx := range ids {
+					must.Succeed(b, db.QueryRow(`INSERT INTO entries (message) VALUES (?) RETURNING id`, "hello").Scan(&ids[idx]))
+				}
+				for _, id := range ids {
+					_ = must.Return(db.Exec(`DELETE FROM entries WHERE id = ?`, id))(b)
+				}
+			}
+
+			insertAndDeleteWithPreparedQueryRow := func(b *testing.B) {
+				ids := make([]int64, batchSize)
+				stmtInsert := must.Return(db.Prepare(`INSERT INTO entries (message) VALUES (?) RETURNING id`))(b)
+				defer stmtInsert.Close()
+				for idx := range ids {
+					must.Succeed(b, stmtInsert.QueryRow("hello").Scan(&ids[idx]))
 				}
 				stmtDelete := must.Return(db.Prepare(`DELETE FROM entries WHERE id = ?`))(b)
 				defer stmtDelete.Close()
@@ -358,14 +382,24 @@ func BenchmarkInsertAndDelete(b *testing.B) {
 					insertAndDeleteWithOblast(b)
 				}
 			})
-			b.Run("just SQLite (straight)", func(b *testing.B) {
+			b.Run("just SQLite (straight Exec)", func(b *testing.B) {
 				for b.Loop() {
-					insertAndDeleteWithStraightSqlite(b)
+					insertAndDeleteWithStraightExec(b)
 				}
 			})
-			b.Run("just SQLite (prepared)", func(b *testing.B) {
+			b.Run("just SQLite (prepared Exec)", func(b *testing.B) {
 				for b.Loop() {
-					insertAndDeleteWithPreparedSqlite(b)
+					insertAndDeleteWithPreparedExec(b)
+				}
+			})
+			b.Run("just SQLite (straight QueryRow)", func(b *testing.B) {
+				for b.Loop() {
+					insertAndDeleteWithStraightQueryRow(b)
+				}
+			})
+			b.Run("just SQLite (prepared QueryRow)", func(b *testing.B) {
+				for b.Loop() {
+					insertAndDeleteWithPreparedQueryRow(b)
 				}
 			})
 		})
