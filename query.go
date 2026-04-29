@@ -152,11 +152,11 @@ func (s Store[R]) Update(db Handle, records ...R) error {
 		argumentSlots   = make([]any, len(argumentIndexes))
 	)
 
-	for idx, r := range records {
-		v := reflect.ValueOf(&r).Elem()
+	for idx := range records {
+		v := reflect.ValueOf(&records[idx]).Elem()
 		rowsAffected, err := updateRecord(v, idx, stmt, argumentIndexes, argumentSlots)
 		if err == nil && rowsAffected == 0 {
-			err = MissingRecordError[R]{r, s.plan}
+			err = MissingRecordError[R]{records[idx], s.plan}
 		}
 		if err != nil {
 			return newIOError(err, "Stmt.Close", stmt.Close())
@@ -197,8 +197,8 @@ func (s Store[R]) Delete(db Handle, records ...R) error {
 		argumentSlots   = make([]any, len(argumentIndexes))
 	)
 
-	for idx, r := range records {
-		v := reflect.ValueOf(&r).Elem()
+	for idx := range records {
+		v := reflect.ValueOf(&records[idx]).Elem()
 		err := deleteRecord(v, idx, stmt, argumentIndexes, argumentSlots)
 		if err != nil {
 			return newIOError(err, "Stmt.Close", stmt.Close())
