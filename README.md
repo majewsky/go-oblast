@@ -28,12 +28,6 @@ The design goals, ordered by priority (most important comes first), are:
 - A minimal amount of CPU usage.
 - As few library dependencies as possible.
 
-As a surprising consequence, this set of priorities forced this library to eschew `context.Context` arguments.
-Early benchmarking showed that replacing `QueryRow` with `QueryRowContext` increased allocations by up to 50% and memory allocated by up to 100%.
-The author of this library is still a fan of `context.Context` for things like HTTP requests to external services, where unpredictable delays make a structured cancellation facility vital.
-But this library optimizes for blazing fast OLTP workloads (with maybe a few OLAP queries every once in a while), where not being able to back out of a running query is not that big of a deal because query runtimes should always be short anyway.
-If in doubt, the lack of `context.Context` arguments can be counteracted by setting timeouts on your DB transactions during OLAP workloads.
-
 Explicit non-goals include:
 
 - A fully featured API for query construction:

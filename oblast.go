@@ -96,6 +96,7 @@
 package oblast // import "go.xyrillian.de/oblast"
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
@@ -134,10 +135,10 @@ func StructTagKeyIs(key string) PlanOption {
 // Handle is an interface for functions providing direct DB access.
 // It covers methods provided by both *sql.DB and *sql.Tx, thus allowing functions using it to be used both within and outside of transactions.
 type Handle interface {
-	Exec(query string, args ...any) (sql.Result, error)
-	Prepare(query string) (*sql.Stmt, error)
-	Query(query string, args ...any) (*sql.Rows, error)
-	QueryRow(query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
 // TODO: investigate if we can extend type Handle to cover types github.com/jackc/pgx.{Conn,Tx}

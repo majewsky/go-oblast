@@ -4,6 +4,7 @@
 package main_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"fmt"
@@ -19,6 +20,9 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
+
+// Do not use b.Context() within benchmarks, or you will merely demonstrate that using a deep stack of Context objects is expensive.
+var noctx = context.Background()
 
 // This is not a real benchmark (obviously).
 // Its purpose is to be the first line that is printed, while having one of the longest names,
@@ -91,12 +95,12 @@ func BenchmarkSelectMany(b *testing.B) {
 			precomputedQuery := store.MustPrepareSelectQueryWhere(partialQuery)
 
 			selectWithOblast := func(b *testing.B) {
-				records := must.Return(store.Select(db, query))(b)
+				records := must.Return(store.Select(noctx, db, query))(b)
 				assert.Equal(b, len(records), batchSize)
 			}
 
 			selectWithOblastWhere := func(b *testing.B) {
-				records := must.Return(precomputedQuery.Select(db))(b)
+				records := must.Return(precomputedQuery.Select(noctx, db))(b)
 				assert.Equal(b, len(records), batchSize)
 			}
 
@@ -185,12 +189,12 @@ func BenchmarkSelectOne(b *testing.B) {
 	precomputedQuery := store.MustPrepareSelectQueryWhere(partialQuery)
 
 	selectWithOblast := func(b *testing.B) {
-		r := must.Return(store.SelectOne(db, query))(b)
+		r := must.Return(store.SelectOne(noctx, db, query))(b)
 		assert.Equal(b, r.ID, recordID)
 	}
 
 	selectWithOblastWhere := func(b *testing.B) {
-		r := must.Return(precomputedQuery.SelectOne(db))(b)
+		r := must.Return(precomputedQuery.SelectOne(noctx, db))(b)
 		assert.Equal(b, r.ID, recordID)
 	}
 
@@ -273,13 +277,13 @@ func BenchmarkInsertAndDelete(b *testing.B) {
 					records[idx] = OblastEntry{Message: "hello"}
 					recordsForInsert[idx] = &records[idx]
 				}
-				must.Succeed(b, store.Insert(db, recordsForInsert...))
+				must.Succeed(b, store.Insert(noctx, db, recordsForInsert...))
 				for _, r := range records {
 					if r.ID == 0 {
 						b.Errorf("ID was not filled!")
 					}
 				}
-				must.Succeed(b, store.Delete(db, records...))
+				must.Succeed(b, store.Delete(noctx, db, records...))
 			}
 
 			insertAndDeleteWithGorp := func(b *testing.B) {
@@ -429,7 +433,7 @@ func BenchmarkUpdate(b *testing.B) {
 				recordsForOblast[idx] = OblastEntry{Message: "hello"}
 				recordsForOblastForInsert[idx] = &recordsForOblast[idx]
 			}
-			must.Succeed(b, store.Insert(db, recordsForOblastForInsert...))
+			must.Succeed(b, store.Insert(noctx, db, recordsForOblastForInsert...))
 			recordsForGorp := make([]any, batchSize)
 			for idx, r := range recordsForOblast {
 				recordsForGorp[idx] = new(GorpEntry(r))
@@ -444,7 +448,7 @@ func BenchmarkUpdate(b *testing.B) {
 				for idx := range recordsForOblast {
 					recordsForOblast[idx].Message = message
 				}
-				must.Succeed(b, store.Update(db, recordsForOblast...))
+				must.Succeed(b, store.Update(noctx, db, recordsForOblast...))
 			}
 			updateWithGorp := func(b *testing.B, message string) {
 				for _, r := range recordsForGorp {
