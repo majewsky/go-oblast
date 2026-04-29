@@ -143,7 +143,7 @@ func BenchmarkSelectMany(b *testing.B) {
 			// run actual benchmark
 			b.Run("via Gorm using Find", func(b *testing.B) {
 				for b.Loop() {
-					selectWithGorp(b)
+					selectWithGorm(b)
 				}
 			})
 			b.Run("via Gorp using Select", func(b *testing.B) {
