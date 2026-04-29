@@ -285,6 +285,16 @@ func BenchmarkInsertAndDelete(b *testing.B) {
 				}
 				must.Succeed(b, store.Delete(noctx, db, records...))
 			}
+			if batchSize == 1 {
+				insertAndDeleteWithOblast = func(b *testing.B) {
+					record := OblastEntry{Message: "hello"}
+					must.Succeed(b, store.Insert(noctx, db, &record))
+					if record.ID == 0 {
+						b.Errorf("ID was not filled!")
+					}
+					must.Succeed(b, store.Delete(noctx, db, record))
+				}
+			}
 
 			insertAndDeleteWithGorp := func(b *testing.B) {
 				records := make([]any, batchSize)
@@ -298,6 +308,16 @@ func BenchmarkInsertAndDelete(b *testing.B) {
 					}
 				}
 				_ = must.Return(gorpDB.Delete(records...))(b)
+			}
+			if batchSize == 1 {
+				insertAndDeleteWithGorp = func(b *testing.B) {
+					record := GorpEntry{Message: "hello"}
+					must.Succeed(b, gorpDB.Insert(&record))
+					if record.ID == 0 {
+						b.Errorf("ID was not filled!")
+					}
+					_ = must.Return(gorpDB.Delete(&record))(b)
+				}
 			}
 
 			insertAndDeleteWithGorm := func(b *testing.B) {
@@ -314,6 +334,15 @@ func BenchmarkInsertAndDelete(b *testing.B) {
 				result := gormDB.Delete(&records)
 				assert.ErrEqual(b, result.Error, "<success>")
 				assert.Equal(b, result.RowsAffected, int64(batchSize))
+			}
+			if batchSize == 1 {
+				insertAndDeleteWithGorm = func(b *testing.B) {
+					record := GormEntry{Message: "hello"}
+					must.Succeed(b, gorm.G[GormEntry](gormDB).Create(b.Context(), &record))
+					result := gormDB.Delete(&record)
+					assert.ErrEqual(b, result.Error, "<success>")
+					assert.Equal(b, result.RowsAffected, 1)
+				}
 			}
 
 			insertAndDeleteWithStraightExec := func(b *testing.B) {
