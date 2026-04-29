@@ -27,15 +27,42 @@ func (s Store[R]) Select(ctx context.Context, db Handle, query string, args ...a
 	var result []R
 	slots := make([]any, len(indexes))
 	for rows.Next() {
-		var target R
-		err = collectRow(rows, s.plan, reflect.ValueOf(&target).Elem(), slots, indexes)
+		var target *R
+		result, target = growRecordSlice(result)
+		err = collectRow(rows, s.plan, reflect.ValueOf(target).Elem(), slots, indexes)
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, target)
 	}
 
 	return result, newIOError(err, "Rows.Err", rows.Err())
+}
+
+// Appends an empty R to the slice and returns a pointer to it, as well as the updated slice.
+// It is more efficient to write:
+//
+//	var result []R
+//	for rows.Next() {
+//		var target *R
+//		result, target = growRecordSlice(result)
+//		doSomethingWith(rows, reflect.ValueOf(target).Elem())
+//	}
+//
+// Instead of the more obvious:
+//
+//	var result []R
+//	for rows.Next() {
+//		var target R
+//		doSomethingWith(rows, reflect.ValueOf(&target).Elem())
+//		result = append(result, target)
+//	}
+//
+// In the second phrasing, `target` escapes to the heap because of `reflect.ValueOf(&target)`,
+// causing an additional allocation for `target` as well as a memcpy of `target` during `append()`.
+func growRecordSlice[R any](records []R) (newRecords []R, target *R) {
+	var zero R
+	newRecords = append(records, zero)
+	return newRecords, &newRecords[len(newRecords)-1]
 }
 
 // SelectWhere is like [Store.Select], but you only provide the part of the SELECT query that comes after the WHERE.
@@ -63,12 +90,12 @@ func (s Store[R]) SelectWhere(ctx context.Context, db Handle, partialQuery strin
 	var result []R
 	slots := make([]any, len(indexes))
 	for rows.Next() {
-		var target R
-		err = collectRow(rows, s.plan, reflect.ValueOf(&target).Elem(), slots, indexes)
+		var target *R
+		result, target = growRecordSlice(result)
+		err = collectRow(rows, s.plan, reflect.ValueOf(target).Elem(), slots, indexes)
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, target)
 	}
 
 	return result, newIOError(err, "Rows.Err", rows.Err())
@@ -232,12 +259,12 @@ func (q PreparedSelectQuery[R]) Select(ctx context.Context, db Handle, args ...a
 	var result []R
 	slots := make([]any, len(indexes))
 	for rows.Next() {
-		var target R
-		err = collectRow(rows, q.store.plan, reflect.ValueOf(&target).Elem(), slots, indexes)
+		var target *R
+		result, target = growRecordSlice(result)
+		err = collectRow(rows, q.store.plan, reflect.ValueOf(target).Elem(), slots, indexes)
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, target)
 	}
 
 	return result, newIOError(err, "Rows.Err", rows.Err())
