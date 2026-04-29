@@ -140,6 +140,10 @@ type Handle interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
+// TODO: investigate if we can extend type Handle to cover types github.com/jackc/pgx.{Conn,Tx}
+// - those have all these methods, but with different return types that act mostly in the same way
+// - a significant departure is that their Prepare() works wildly differently
+
 // static assertion that the respective types implement the interface
 var (
 	_ Handle = &sql.DB{}
