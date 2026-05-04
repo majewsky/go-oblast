@@ -189,12 +189,12 @@ func BenchmarkSelectOne(b *testing.B) {
 	precomputedQuery := store.MustPrepareSelectQueryWhere(partialQuery)
 
 	selectWithOblast := func(b *testing.B) {
-		r := must.Return(store.SelectOne(noctx, db, query))(b)
+		r := must.Return(store.SelectOne(noctx, db, query))(b).UnwrapOrPanic("missing record")
 		assert.Equal(b, r.ID, recordID)
 	}
 
 	selectWithOblastWhere := func(b *testing.B) {
-		r := must.Return(precomputedQuery.SelectOne(noctx, db))(b)
+		r := must.Return(precomputedQuery.SelectOne(noctx, db))(b).UnwrapOrPanic("missing record")
 		assert.Equal(b, r.ID, recordID)
 	}
 

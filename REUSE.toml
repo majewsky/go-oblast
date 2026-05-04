@@ -11,6 +11,7 @@ path = [
   "benchmark/go.sum",
   "description",
   "go.mod",
+  "go.sum",
   "go.work",
   "go.work.sum",
 ]

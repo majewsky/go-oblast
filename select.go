@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+
+	. "go.xyrillian.de/gg/option"
 )
 
 // Select executes the provided SQL query and fills an instance of the record type R for each row in the result set,
@@ -158,24 +160,26 @@ func collectRow(rows *sql.Rows, plan plan, v reflect.Value, slots []any, indexes
 // SelectOne executes the provided SQL query and fills an instance of the record type R if there is exactly one row in the result set,
 // according to the column names reported by the database as part of the result set.
 //
-// If there are no rows in the result set, [sql.ErrNoRows] is returned.
+// If there are no rows in the result set, [None] is returned.
 //
 // Warning: Because of limitations in the interface of database/sql, this function is built on [Store.Select] and cannot be any faster than it.
 // For maximum performance, use [Store.SelectOneWhere] which avoids the overhead of potentially having to read multiple rows.
-func (s Store[R]) SelectOne(ctx context.Context, db Handle, query string, args ...any) (result R, err error) {
+func (s Store[R]) SelectOne(ctx context.Context, db Handle, query string, args ...any) (Option[R], error) {
 	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
 	//       Any expression that does not depend on type R should be factored out into a reusable function.
+	//
+	// NOTE: The "limitation in the interface of database/sql" is that type sql.Row does not have the Columns() method,
+	//       which we need when mapping result columns to struct fields for user-provided queries.
 
-	var results []R
-	results, err = s.Select(ctx, db, query, args...)
-	if err == nil {
-		if len(results) == 0 {
-			err = sql.ErrNoRows
-		} else {
-			result = results[0]
-		}
+	results, err := s.Select(ctx, db, query, args...)
+	switch {
+	case err != nil:
+		return None[R](), err
+	case len(results) == 0:
+		return None[R](), nil
+	default:
+		return Some(results[0]), nil
 	}
-	return
 }
 
 // SelectOneWhere is like [Store.SelectOne], but you only provide the part of the SELECT query that comes after the WHERE.
@@ -183,12 +187,20 @@ func (s Store[R]) SelectOne(ctx context.Context, db Handle, query string, args .
 //
 // This method is more efficient than [Store.SelectOne] on CPU runtime, but has a slight memory allocation overhead per call from query preparation.
 // This can be avoided by using [Store.PrepareSelectQueryWhere] instead.
-func (s Store[R]) SelectOneWhere(ctx context.Context, db Handle, partialQuery string, args ...any) (result R, err error) {
+func (s Store[R]) SelectOneWhere(ctx context.Context, db Handle, partialQuery string, args ...any) (Option[R], error) {
 	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
 	//       Any expression that does not depend on type R should be factored out into a reusable function.
 
-	err = selectOneWhere(ctx, db, s.plan, reflect.ValueOf(&result).Elem(), partialQuery, args)
-	return
+	var result R
+	err := selectOneWhere(ctx, db, s.plan, reflect.ValueOf(&result).Elem(), partialQuery, args)
+	switch {
+	case err == nil:
+		return Some(result), nil
+	case errors.Is(err, sql.ErrNoRows):
+		return None[R](), nil
+	default:
+		return None[R](), err
+	}
 }
 
 func selectOneWhere(ctx context.Context, db Handle, plan plan, v reflect.Value, partialQuery string, args []any) error {
@@ -271,10 +283,18 @@ func (q PreparedSelectQuery[R]) Select(ctx context.Context, db Handle, args ...a
 }
 
 // SelectOne behaves the same as [Store.SelectOneWhere], but uses the query that was precomputed when q was constructed.
-func (q PreparedSelectQuery[R]) SelectOne(ctx context.Context, db Handle, args ...any) (result R, err error) {
+func (q PreparedSelectQuery[R]) SelectOne(ctx context.Context, db Handle, args ...any) (Option[R], error) {
 	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
 	//       Any expression that does not depend on type R should be factored out into a reusable function.
 
-	err = selectOne(ctx, db, q.store.plan, reflect.ValueOf(&result).Elem(), q.query, args)
-	return
+	var result R
+	err := selectOne(ctx, db, q.store.plan, reflect.ValueOf(&result).Elem(), q.query, args)
+	switch {
+	case err == nil:
+		return Some(result), nil
+	case errors.Is(err, sql.ErrNoRows):
+		return None[R](), nil
+	default:
+		return None[R](), err
+	}
 }

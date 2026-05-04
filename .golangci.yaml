@@ -81,7 +81,7 @@ linters:
             - disableChecksOnConstants
     staticcheck:
       dot-import-whitelist:
-        - github.com/majewsky/gg/option
+        - go.xyrillian.de/gg/option
   exclusions:
     generated: lax
     presets:

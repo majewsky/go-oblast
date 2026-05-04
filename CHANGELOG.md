@@ -3,6 +3,12 @@ SPDX-FileCopyrightText: 2026 Stefan Majewsky <majewsky@gmx.net>
 SPDX-License-Identifier: Apache-2.0
 -->
 
+# v0.4.0 (TBD)
+
+API changes:
+
+- Return `None` instead of `sql.ErrNoRows` from `Store.SelectOne...` functions.
+
 # v0.3.0 (2026-04-30)
 
 API changes:
