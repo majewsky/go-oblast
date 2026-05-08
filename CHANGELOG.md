@@ -3,6 +3,13 @@ SPDX-FileCopyrightText: 2026 Stefan Majewsky <majewsky@gmx.net>
 SPDX-License-Identifier: Apache-2.0
 -->
 
+# v0.5.0
+
+API changes:
+
+- Offer both `None`-returning and `sql.ErrNoRows`-returning variants for `Store.SelectOne...` functions.
+  Testing in real-world application code indicates that both return signatures have their uses.
+
 # v0.4.0 (2026-05-04)
 
 API changes:

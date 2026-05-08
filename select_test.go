@@ -79,6 +79,16 @@ func TestSelectReturningSomeRecords(t *testing.T) {
 			WithRow("ffffoo", 1).
 			WithRow("bbbbar", 2)
 		record := must.Return(store.SelectOne(ctx, db, `SELECT * FROM basic_records WHERE id < ?`, 3))(t)
+		assert.Equal(t, record, basicRecord{1, "ffffoo"})
+	})
+
+	t.Run("using Store.SelectOneOrNone", func(t *testing.T) {
+		md.ForQuery(`SELECT * FROM basic_records WHERE id < ?`).
+			ExpectQueryWithArgs(3).
+			AndReturnColumns("name", "id").
+			WithRow("ffffoo", 1).
+			WithRow("bbbbar", 2)
+		record := must.Return(store.SelectOneOrNone(ctx, db, `SELECT * FROM basic_records WHERE id < ?`, 3))(t)
 		assert.Equal(t, record, Some(basicRecord{1, "ffffoo"}))
 	})
 
@@ -89,6 +99,16 @@ func TestSelectReturningSomeRecords(t *testing.T) {
 			WithRow(1, "fffffoo").
 			WithRow(2, "bbbbbar")
 		record := must.Return(store.SelectOneWhere(ctx, db, `id < ?`, 3))(t)
+		assert.Equal(t, record, basicRecord{1, "fffffoo"})
+	})
+
+	t.Run("using Store.SelectOneOrNoneWhere", func(t *testing.T) {
+		md.ForQuery(`SELECT "id", "name" FROM "basic_records" WHERE id < ?`).
+			ExpectQueryWithArgs(3).
+			AndReturnColumns("id", "name").
+			WithRow(1, "fffffoo").
+			WithRow(2, "bbbbbar")
+		record := must.Return(store.SelectOneOrNoneWhere(ctx, db, `id < ?`, 3))(t)
 		assert.Equal(t, record, Some(basicRecord{1, "fffffoo"}))
 	})
 
@@ -100,6 +120,17 @@ func TestSelectReturningSomeRecords(t *testing.T) {
 			WithRow(2, "bbbbbbar")
 		query := store.MustPrepareSelectQueryWhere(`id < ?`)
 		record := must.Return(query.SelectOne(ctx, db, 3))(t)
+		assert.Equal(t, record, basicRecord{1, "ffffffoo"})
+	})
+
+	t.Run("using PreparedSelectQuery.SelectOneOrNone", func(t *testing.T) {
+		md.ForQuery(`SELECT "id", "name" FROM "basic_records" WHERE id < ?`).
+			ExpectQueryWithArgs(3).
+			AndReturnColumns("id", "name").
+			WithRow(1, "ffffffoo").
+			WithRow(2, "bbbbbbar")
+		query := store.MustPrepareSelectQueryWhere(`id < ?`)
+		record := must.Return(query.SelectOneOrNone(ctx, db, 3))(t)
 		assert.Equal(t, record, Some(basicRecord{1, "ffffffoo"}))
 	})
 }
@@ -148,7 +179,15 @@ func TestSelectReturningNoRecords(t *testing.T) {
 		md.ForQuery(`SELECT * FROM basic_records WHERE id < ?`).
 			ExpectQueryWithArgs(3).
 			AndReturnColumns("name", "id")
-		record := must.Return(store.SelectOne(ctx, db, `SELECT * FROM basic_records WHERE id < ?`, 3))(t)
+		_, err := store.SelectOne(ctx, db, `SELECT * FROM basic_records WHERE id < ?`, 3)
+		assert.ErrEqual(t, err, sql.ErrNoRows.Error())
+	})
+
+	t.Run("using Store.SelectOneOrNone", func(t *testing.T) {
+		md.ForQuery(`SELECT * FROM basic_records WHERE id < ?`).
+			ExpectQueryWithArgs(3).
+			AndReturnColumns("name", "id")
+		record := must.Return(store.SelectOneOrNone(ctx, db, `SELECT * FROM basic_records WHERE id < ?`, 3))(t)
 		assert.Equal(t, record, None[basicRecord]())
 	})
 
@@ -156,7 +195,15 @@ func TestSelectReturningNoRecords(t *testing.T) {
 		md.ForQuery(`SELECT "id", "name" FROM "basic_records" WHERE id < ?`).
 			ExpectQueryWithArgs(3).
 			AndReturnColumns("id", "name")
-		record := must.Return(store.SelectOneWhere(ctx, db, `id < ?`, 3))(t)
+		_, err := store.SelectOneWhere(ctx, db, `id < ?`, 3)
+		assert.ErrEqual(t, err, sql.ErrNoRows.Error())
+	})
+
+	t.Run("using Store.SelectOneOrNoneWhere", func(t *testing.T) {
+		md.ForQuery(`SELECT "id", "name" FROM "basic_records" WHERE id < ?`).
+			ExpectQueryWithArgs(3).
+			AndReturnColumns("id", "name")
+		record := must.Return(store.SelectOneOrNoneWhere(ctx, db, `id < ?`, 3))(t)
 		assert.Equal(t, record, None[basicRecord]())
 	})
 
@@ -165,7 +212,16 @@ func TestSelectReturningNoRecords(t *testing.T) {
 			ExpectQueryWithArgs(3).
 			AndReturnColumns("id", "name")
 		query := store.MustPrepareSelectQueryWhere(`id < ?`)
-		record := must.Return(query.SelectOne(ctx, db, 3))(t)
+		_, err := query.SelectOne(ctx, db, 3)
+		assert.ErrEqual(t, err, sql.ErrNoRows.Error())
+	})
+
+	t.Run("using PreparedSelectQuery.SelectOneOrNone", func(t *testing.T) {
+		md.ForQuery(`SELECT "id", "name" FROM "basic_records" WHERE id < ?`).
+			ExpectQueryWithArgs(3).
+			AndReturnColumns("id", "name")
+		query := store.MustPrepareSelectQueryWhere(`id < ?`)
+		record := must.Return(query.SelectOneOrNone(ctx, db, 3))(t)
 		assert.Equal(t, record, None[basicRecord]())
 	})
 }
@@ -336,6 +392,14 @@ func TestSelectIntoEmbeddedTypes(t *testing.T) {
 		commonSetup(`SELECT * FROM composite_records`)
 		record := must.Return(store.SelectOne(ctx, db, `SELECT * FROM composite_records`))(t)
 		assert.DeepEqual(t, record,
+			compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}},
+		)
+	})
+
+	t.Run("using Store.SelectOneOrNone", func(t *testing.T) {
+		commonSetup(`SELECT * FROM composite_records`)
+		record := must.Return(store.SelectOneOrNone(ctx, db, `SELECT * FROM composite_records`))(t)
+		assert.DeepEqual(t, record,
 			Some(compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}}),
 		)
 	})
@@ -343,6 +407,14 @@ func TestSelectIntoEmbeddedTypes(t *testing.T) {
 	t.Run("using Store.SelectOneWhere", func(t *testing.T) {
 		commonSetup(`SELECT "id", "created_at", "updated_at" FROM "composite_records" WHERE TRUE`)
 		record := must.Return(store.SelectOneWhere(ctx, db, `TRUE`))(t)
+		assert.DeepEqual(t, record,
+			compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}},
+		)
+	})
+
+	t.Run("using Store.SelectOneOrNoneWhere", func(t *testing.T) {
+		commonSetup(`SELECT "id", "created_at", "updated_at" FROM "composite_records" WHERE TRUE`)
+		record := must.Return(store.SelectOneOrNoneWhere(ctx, db, `TRUE`))(t)
 		assert.DeepEqual(t, record,
 			Some(compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}}),
 		)
@@ -352,6 +424,15 @@ func TestSelectIntoEmbeddedTypes(t *testing.T) {
 		commonSetup(`SELECT "id", "created_at", "updated_at" FROM "composite_records" WHERE TRUE`)
 		query := store.MustPrepareSelectQueryWhere(`TRUE`)
 		record := must.Return(query.SelectOne(ctx, db))(t)
+		assert.DeepEqual(t, record,
+			compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}},
+		)
+	})
+
+	t.Run("using PreparedSelectQuery.SelectOneOrNone", func(t *testing.T) {
+		commonSetup(`SELECT "id", "created_at", "updated_at" FROM "composite_records" WHERE TRUE`)
+		query := store.MustPrepareSelectQueryWhere(`TRUE`)
+		record := must.Return(query.SelectOneOrNone(ctx, db))(t)
 		assert.DeepEqual(t, record,
 			Some(compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}}),
 		)
