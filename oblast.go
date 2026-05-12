@@ -25,17 +25,19 @@
 // Then use it many times to perform load and store operations:
 //
 //	func doStuff(db *sql.DB) error {
+//		dbh := oblast.Wrap(db)
+//
 //		newEntry := LogEntry{
 //			CreatedAt: time.Now(),
 //			Message: "Hello World.",
 //		}
-//		err := logEntryStore.Insert(db, &newEntry)
+//		err := logEntryStore.Insert(dbh, &newEntry)
 //		if err != nil {
 //			return err
 //		}
 //		fmt.Printf("created log entry %d", newEntry.ID)
 //
-//		allEntries, err := logEntryStore.SelectWhere(db, `created_at < NOW()`)
+//		allEntries, err := logEntryStore.SelectWhere(dbh, `created_at < NOW()`)
 //		if err != nil {
 //		  return err
 //		}

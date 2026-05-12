@@ -346,3 +346,76 @@ func TestUpsertFailsOnMixedAutoFieldState(t *testing.T) {
 	err := store.Upsert(ctx, db, &brokenRecord)
 	assert.ErrEqual(t, err, `cannot decide whether to INSERT or UPDATE record with idx = 0: some "auto" columns are zero, others are not`)
 }
+
+func TestUninitializedTransparentPointerStructs(t *testing.T) {
+	ctx := t.Context()
+	md := mock.NewDriver()
+	db := oblast.Wrap(sql.OpenDB(md))
+
+	// declare a record type that has a transparent pointer struct containing non-primary-key fields
+	type timestamps struct {
+		CreatedAt time.Time  `db:"created_at"`
+		DeletedAt *time.Time `db:"deleted_at"`
+	}
+	type nestedRecord struct {
+		ID   int64  `db:"id,auto"`
+		Name string `db:"name"`
+		*timestamps
+	}
+	nestedRecordStore := oblast.MustNewStore[nestedRecord](
+		oblast.SqliteDialect(),
+		oblast.TableNameIs("nested_records"),
+		oblast.PrimaryKeyIs("id"),
+	)
+
+	// declare another record type that has a primary key field within a transparent pointer struct
+	type commonFields struct {
+		ID        int64      `db:"id,auto"`
+		CreatedAt time.Time  `db:"created_at"`
+		DeletedAt *time.Time `db:"deleted_at"`
+	}
+	type weirdRecord struct {
+		*commonFields
+		Name string `db:"name"`
+	}
+	weirdRecordStore := oblast.MustNewStore[weirdRecord](
+		oblast.SqliteDialect(),
+		oblast.TableNameIs("weird_records"),
+		oblast.PrimaryKeyIs("id"),
+	)
+
+	// check detection on INSERT
+	freshBrokenRecord := nestedRecord{
+		Name:       "foo",
+		timestamps: nil, // problem: cannot access `freshBrokenRecord.CreatedAt` or `freshBrokenRecord.DeletedAt`
+	}
+	err := nestedRecordStore.Insert(ctx, db, &freshBrokenRecord)
+	assert.ErrEqual(t, err, `refusing to INSERT record with idx = 0: cannot access all mapped fields because field "timestamps" holds a nil pointer`)
+	err = nestedRecordStore.Upsert(ctx, db, &freshBrokenRecord)
+	assert.ErrEqual(t, err, `refusing to INSERT or UPDATE record with idx = 0: cannot access all mapped fields because field "timestamps" holds a nil pointer`)
+
+	// check detection on UPDATE
+	existingBrokenRecord := nestedRecord{
+		ID:         42,
+		Name:       "bar",
+		timestamps: nil, // same problem as above
+	}
+	err = nestedRecordStore.Update(ctx, db, existingBrokenRecord)
+	assert.ErrEqual(t, err, `refusing to UPDATE record with idx = 0: cannot access all mapped fields because field "timestamps" holds a nil pointer`)
+	err = nestedRecordStore.Upsert(ctx, db, &freshBrokenRecord)
+	assert.ErrEqual(t, err, `refusing to INSERT or UPDATE record with idx = 0: cannot access all mapped fields because field "timestamps" holds a nil pointer`)
+
+	// check that detection on DELETE does not care about transparent pointer structs as long as they do not contain PK fields
+	md.ForQuery(`DELETE FROM "nested_records" WHERE "id" = ?`).
+		ExpectExecWithArgs(42).
+		AndReturnRowsAffected(1)
+	must.Succeed(t, nestedRecordStore.Delete(ctx, db, existingBrokenRecord))
+
+	// check detection on DELETE where it matters
+	existingWeirdRecord := weirdRecord{
+		commonFields: nil, // problem: cannot access `existingWeirdRecord.ID`
+		Name:         "qux",
+	}
+	err = weirdRecordStore.Delete(ctx, db, existingWeirdRecord)
+	assert.ErrEqual(t, err, `refusing to DELETE record with idx = 0: cannot access all primary key fields because field "commonFields" holds a nil pointer`)
+}

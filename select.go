@@ -144,8 +144,8 @@ func startSelectWhereQuery(ctx context.Context, db Handle, plan plan, partialQue
 }
 
 func collectRow(rows handle.Rows, plan plan, v reflect.Value, slots []any, indexes [][]int) error {
-	for _, index := range plan.IndexesOfTransparentPointerStructs {
-		f := v.FieldByIndex(index)
+	for _, field := range plan.TransparentPointerStructFields {
+		f := v.FieldByIndex(field.Index)
 		f.Set(reflect.New(f.Type().Elem()))
 	}
 	for idx, index := range indexes {
@@ -232,8 +232,8 @@ func selectOneWhere(ctx context.Context, db Handle, plan plan, v reflect.Value, 
 }
 
 func selectOne(ctx context.Context, db Handle, plan plan, v reflect.Value, query string, args []any) error {
-	for _, index := range plan.IndexesOfTransparentPointerStructs {
-		f := v.FieldByIndex(index)
+	for _, field := range plan.TransparentPointerStructFields {
+		f := v.FieldByIndex(field.Index)
 		f.Set(reflect.New(f.Type().Elem()))
 	}
 	slots := make([]any, len(plan.Select.ScanIndexes))

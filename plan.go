@@ -23,8 +23,8 @@ type plan struct {
 
 	// Field index (i.e. argument for reflect.Value.FieldByIndex()) for each column name.
 	IndexByColumnName map[string][]int
-	// Indexes of pointer-typed fields that need to be initialized before scanning into this type.
-	IndexesOfTransparentPointerStructs [][]int
+	// Pointer-typed fields that need to be initialized before scanning into this type.
+	TransparentPointerStructFields []fieldInfo
 
 	// Planned queries.
 	Select plannedQuery // only `SELECT ... FROM ... WHERE `; user supplies the rest during Select{,One}Where()
@@ -32,6 +32,13 @@ type plan struct {
 	Upsert plannedQuery
 	Update plannedQuery
 	Delete plannedQuery
+}
+
+// fieldInfo appears in type plan.
+type fieldInfo struct {
+	Name               string
+	Index              []int
+	ContainsPrimaryKey bool
 }
 
 // plannedQuery appears in type plan.
@@ -80,11 +87,6 @@ func buildPlan(t reflect.Type, dialect Dialect, opts planOpts) (plan, error) {
 
 	// discover addressable fields in this type, collect information from markers and tags
 	for _, field := range reflect.VisibleFields(t) {
-		// ignore unexported fields (otherwise reflect.Value.Interface() on the field would panic)
-		if field.PkgPath != "" {
-			continue
-		}
-
 		// recurse into struct fields (i.e. ignore the struct itself and consider its members instead)
 		// unless the field itself has a `db:"..."` tag
 		if field.Type.Kind() == reflect.Struct || (field.Type.Kind() == reflect.Pointer && field.Type.Elem().Kind() == reflect.Struct) {
@@ -93,11 +95,20 @@ func buildPlan(t reflect.Type, dialect Dialect, opts planOpts) (plan, error) {
 				if field.Type.Kind() == reflect.Pointer {
 					// remember that, when scanning into a record of type `t`, we need to write a non-nil zeroed struct into this field
 					// to enable taking an address of its mapped member fields
-					p.IndexesOfTransparentPointerStructs = append(p.IndexesOfTransparentPointerStructs, field.Index)
+					p.TransparentPointerStructFields = append(p.TransparentPointerStructFields, fieldInfo{
+						Name:               field.Name,
+						Index:              field.Index,
+						ContainsPrimaryKey: false, // might be set later
+					})
 				}
 				continue
 			}
 			indexesOfOpaqueStructs = append(indexesOfOpaqueStructs, field.Index)
+		}
+
+		// ignore unexported fields (otherwise reflect.Value.Interface() on the field would panic)
+		if field.PkgPath != "" {
+			continue
 		}
 
 		// ignore fields that are within a struct type that is mapped as a whole
@@ -129,6 +140,15 @@ func buildPlan(t reflect.Type, dialect Dialect, opts planOpts) (plan, error) {
 			if isWithin(field.Index, index) {
 				indexesOfUnusedTransparentStructs = slices.Delete(indexesOfUnusedTransparentStructs, idx, idx+1)
 				goto restartIteration
+			}
+		}
+
+		// track which transparent pointer structs contain PK fields
+		if slices.Contains(p.PrimaryKeyColumnNames, columnName) {
+			for idx, tpsField := range p.TransparentPointerStructFields {
+				if isWithin(field.Index, tpsField.Index) {
+					p.TransparentPointerStructFields[idx].ContainsPrimaryKey = true
+				}
 			}
 		}
 

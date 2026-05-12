@@ -3,6 +3,13 @@ SPDX-FileCopyrightText: 2026 Stefan Majewsky <majewsky@gmx.net>
 SPDX-License-Identifier: Apache-2.0
 -->
 
+# v0.8.0 (TBD)
+
+Changes:
+
+- Insert, Upsert, Update and Delete will no longer panic when one of the fields they need to access is within a pointer-to-struct that is nil.
+  Instead, an error will be returned in a controlled manner.
+
 # v0.7.0 (2026-05-12)
 
 API changes:
