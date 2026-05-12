@@ -88,9 +88,9 @@ func (d postgresDialect) UpsertClause(pkColumns, otherColumns []string) string {
 	}
 }
 
-// SqliteDialect is the dialect of SQLite 3.24.0+ databases.
+// SqliteDialect is the dialect of SQLite 3.35.0+ databases.
 //
-// This dialect does NOT support ancient SQLite versions (3.24.0 was released 2018-06-04)
+// This dialect does NOT support ancient SQLite versions (3.35.0 was released 2021-03-12)
 // that do not understand the "INSERT ... RETURNING" syntax.
 func SqliteDialect() Dialect {
 	return sqliteDialect{}
