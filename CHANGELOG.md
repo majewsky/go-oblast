@@ -14,6 +14,10 @@ API changes:
   (if the user provides the respective custom implementation of the `Handle` interface).
   Preliminary benchmarking has already shown that, for the PostgreSQL case, oblast + jackc/pgx is significantly more efficient than oblast + lib/pq.
 
+Changes:
+
+- Added escaping to `Dialect.QuoteIdentifier` implementations to reduce attack surface for SQL injection.
+
 # v0.6.0 (2026-05-08)
 
 API changes:

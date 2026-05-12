@@ -44,8 +44,13 @@ func MariaDBDialect() Dialect {
 
 type mariadbDialect struct{}
 
-func (mariadbDialect) Placeholder(_ int) string           { return "?" }
-func (mariadbDialect) QuoteIdentifier(name string) string { return "`" + name + "`" }
+func (mariadbDialect) Placeholder(_ int) string {
+	return "?"
+}
+
+func (mariadbDialect) QuoteIdentifier(name string) string {
+	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
+}
 
 func (d mariadbDialect) UpsertClause(pkColumns, otherColumns []string) string {
 	clauses := make([]string, max(1, len(otherColumns)))
@@ -68,8 +73,13 @@ func PostgresDialect() Dialect {
 
 type postgresDialect struct{}
 
-func (postgresDialect) Placeholder(i int) string           { return "$" + strconv.Itoa(i+1) }
-func (postgresDialect) QuoteIdentifier(name string) string { return `"` + name + `"` }
+func (postgresDialect) Placeholder(i int) string {
+	return "$" + strconv.Itoa(i+1)
+}
+
+func (postgresDialect) QuoteIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
 
 func (d postgresDialect) UpsertClause(pkColumns, otherColumns []string) string {
 	quotedPkColumns := make([]string, len(pkColumns))
@@ -98,8 +108,14 @@ func SqliteDialect() Dialect {
 
 type sqliteDialect struct{}
 
-func (sqliteDialect) Placeholder(_ int) string           { return "?" }
-func (sqliteDialect) QuoteIdentifier(name string) string { return `"` + name + `"` }
+func (sqliteDialect) Placeholder(_ int) string {
+	return "?"
+}
+
+func (sqliteDialect) QuoteIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
 func (sqliteDialect) UpsertClause(pkColumns, otherColumns []string) string {
 	return postgresDialect{}.UpsertClause(pkColumns, otherColumns)
 }
