@@ -260,7 +260,7 @@ type Rows struct {
 	closeError error
 }
 
-// AndReturnColumns configures the set of column names that will be returend by this query.
+// AndReturnColumns configures the set of column names that will be returned by this query.
 // Returns the same Result instance to allow chaining additional method calls.
 func (r *Rows) AndReturnColumns(columns ...string) *Rows {
 	if len(r.columns) > 0 {

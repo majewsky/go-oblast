@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package handle contains type definitions for connecting non-std database drivers to Oblast.
-// Since most database drivers use the standard interface from databse/sql, the Wrap() function from the main package covers the needs of most users.
+// Since most database drivers use the standard interface from database/sql, the Wrap() function from the main package covers the needs of most users.
 package handle
 
 import (

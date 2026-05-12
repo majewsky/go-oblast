@@ -289,7 +289,7 @@ func TestQueryConstructionWithoutPrimaryKey(t *testing.T) {
 	})
 }
 
-func TestQueryConstructionImpossble(t *testing.T) {
+func TestQueryConstructionImpossible(t *testing.T) {
 	type unstructuredData struct {
 		Foo int
 		Bar *string
