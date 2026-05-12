@@ -43,8 +43,8 @@ type wrappedHandle struct {
 	inner Handle
 }
 
-// Prepare implements the [handle.Handle] interface.
-func (h wrappedHandle) Prepare(ctx context.Context, query string, repeated bool) (handle.Statement, error) {
+// OblastPrepare implements the [handle.Handle] interface.
+func (h wrappedHandle) OblastPrepare(ctx context.Context, query string, repeated bool) (handle.Statement, error) {
 	if !repeated {
 		return wrappedUnpreparedStatement{query, h.inner}, nil
 	}
@@ -74,8 +74,8 @@ func deallocate(ctx context.Context, h Handle, stmt *pgconn.StatementDescription
 	}
 }
 
-// Query implements the [handle.Handle] interface.
-func (h wrappedHandle) Query(ctx context.Context, query string, args []any) (handle.Rows, error) {
+// OblastQuery implements the [handle.Handle] interface.
+func (h wrappedHandle) OblastQuery(ctx context.Context, query string, args []any) (handle.Rows, error) {
 	rows, err := h.inner.Query(ctx, query, args...)
 	return wrappedRows{rows}, err
 }

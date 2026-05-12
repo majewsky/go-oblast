@@ -5,6 +5,12 @@ SPDX-License-Identifier: Apache-2.0
 
 # v0.8.0 (TBD)
 
+API changes:
+
+- `Wrap` now returns a struct type `SqlHandle` instead of the interface type `Handle`.
+  This enables reaching into the `SqlHandle` and getting the original `*sql.DB` and `*sql.Tx` back out,
+  which is more ergonomic in situations where Oblast loads/stores need to be mixed with other types of DB operations.
+
 Changes:
 
 - Insert, Upsert, Update and Delete will no longer panic when one of the fields they need to access is within a pointer-to-struct that is nil.

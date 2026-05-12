@@ -13,16 +13,18 @@ import (
 // Handle contains behavior that database handles must offer to Oblast.
 // The standard-library types [*sql.DB] and [*sql.Tx] can satisfy this interface through the Wrap() function from the main package.
 // Custom implementations of this interface can be used to connect non-std database drivers to Oblast.
+//
+// The method names are deliberately clunky to avoid name clashes with well-known methods like [sql.DB.Prepare] or [sql.DB.Query].
 type Handle interface {
-	// Prepare prepares to execute a certain SQL query one or multiple times.
+	// OblastPrepare prepares to execute a certain SQL query one or multiple times.
 	//
 	// The "repeated" flag is a hint to the implementation whether the same statement is going to be run many times.
 	// If false, the implementation shall choose to forego the additional effort of a full statement preparation if possible,
 	// and execute one-off queries instead.
-	Prepare(ctx context.Context, query string, repeated bool) (Statement, error)
+	OblastPrepare(ctx context.Context, query string, repeated bool) (Statement, error)
 
-	// Query works like db.QueryContext(ctx, query, args...).
-	Query(ctx context.Context, query string, args []any) (Rows, error)
+	// OblastQuery works like db.QueryContext(ctx, query, args...).
+	OblastQuery(ctx context.Context, query string, args []any) (Rows, error)
 }
 
 // Statement represents a prepared statement returned from [Handle.Prepare].

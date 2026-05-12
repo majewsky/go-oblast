@@ -21,7 +21,7 @@ import (
 	"go.xyrillian.de/oblast/internal/testhelpers/must"
 )
 
-// NOTE: In this file, we benchmark different PostgreSQL database drivers against each other with or without Oblast inbetween.
+// NOTE: In this file, we benchmark different PostgreSQL database drivers against each other with or without Oblast in between.
 // All benchmarks are called "BenchmarkPostgres...".
 // To run these benchmarks, you need to have provide a DSN to a PostgreSQL database in $BENCHMARK_POSTGRES_DSN.
 
@@ -36,14 +36,14 @@ func BenchmarkPostgresHeadingHeadingHeadingHeadingHeadingHeadingHeadingHeading(b
 
 const defaultPostgresDSN = "host=localhost user=postgres dbname=oblast_benchmark sslmode=disable"
 
-func connectToPostgresTestDB(t testing.TB, recordCount int) *sql.DB {
+func connectToPostgresTestDB(t testing.TB, recordCount int) oblast.SqlHandle[*sql.DB] {
 	dsn := cmp.Or(os.Getenv("BENCHMARK_POSTGRES_DSN"), defaultPostgresDSN)
-	db := must.Return(sql.Open("postgres", dsn))(t)
-	_ = must.Return(db.Exec(`CREATE TEMPORARY TABLE entries (id BIGSERIAL, message TEXT)`))(t)
+	db := oblast.Wrap(must.Return(sql.Open("postgres", dsn))(t))
+	_ = must.Return(db.Base.Exec(`CREATE TEMPORARY TABLE entries (id BIGSERIAL, message TEXT)`))(t)
 
 	if recordCount > 0 {
 		// fill in some random-looking, but deterministic data
-		stmt := must.Return(db.Prepare(`INSERT INTO entries (id, message) VALUES ($1, $2)`))(t)
+		stmt := must.Return(db.Base.Prepare(`INSERT INTO entries (id, message) VALUES ($1, $2)`))(t)
 		for idx := range recordCount {
 			buf := sha256.Sum256([]byte(strconv.Itoa(idx)))
 			_ = must.Return(stmt.Exec(idx, fmt.Sprintf("sha256:%x", buf[:])))(t)
@@ -62,11 +62,11 @@ func connectToPgxTestDB(t testing.TB, recordCount int) *pgx.Conn {
 
 	if recordCount > 0 {
 		// fill in some random-looking, but deterministic data
-		sql := `INSERT INTO entries (id, message) VALUES ($1, $2)`
-		stmt := must.Return(conn.Prepare(ctx, sql, sql))(t)
+		query := `INSERT INTO entries (id, message) VALUES ($1, $2)`
+		stmt := must.Return(conn.Prepare(ctx, query, query))(t)
 		for idx := range recordCount {
 			buf := sha256.Sum256([]byte(strconv.Itoa(idx)))
-			_ = must.Return(conn.Exec(ctx, sql, idx, fmt.Sprintf("sha256:%x", buf[:])))(t)
+			_ = must.Return(conn.Exec(ctx, query, idx, fmt.Sprintf("sha256:%x", buf[:])))(t)
 		}
 		must.Succeed(t, conn.Deallocate(ctx, stmt.Name))
 	}
@@ -76,7 +76,6 @@ func connectToPgxTestDB(t testing.TB, recordCount int) *pgx.Conn {
 
 func BenchmarkPostgresSelect(b *testing.B) {
 	pqDB := connectToPostgresTestDB(b, totalRecordCountForSelect)
-	pqDBH := oblast.Wrap(pqDB)
 	pgxConn := connectToPgxTestDB(b, totalRecordCountForSelect)
 	pgxConnH := oblast_pgx.Wrap(pgxConn)
 
@@ -93,7 +92,7 @@ func BenchmarkPostgresSelect(b *testing.B) {
 
 			b.Run("driver=pq/strategy=oblast", func(b *testing.B) {
 				for b.Loop() {
-					records := must.Return(store.Select(noctx, pqDBH, query))(b)
+					records := must.Return(store.Select(noctx, pqDB, query))(b)
 					assert.Equal(b, len(records), batchSize)
 				}
 			})
@@ -108,7 +107,7 @@ func BenchmarkPostgresSelect(b *testing.B) {
 			b.Run("driver=pq/strategy=straight", func(b *testing.B) {
 				for b.Loop() {
 					var records []OblastEntry
-					rows := must.Return(pqDB.Query(query))(b) //nolint:rowserrcheck // false positive
+					rows := must.Return(pqDB.Base.Query(query))(b) //nolint:rowserrcheck // false positive
 					for rows.Next() {
 						var e OblastEntry
 						must.Succeed(b, rows.Scan(&e.ID, &e.Message))
@@ -122,7 +121,7 @@ func BenchmarkPostgresSelect(b *testing.B) {
 			b.Run("driver=pgx/strategy=straight", func(b *testing.B) {
 				for b.Loop() {
 					var records []OblastEntry
-					rows := must.Return(pgxConn.Query(noctx, query))(b) //nolint:rowserrcheck // false positive
+					rows := must.Return(pgxConn.Query(noctx, query))(b)
 					for rows.Next() {
 						var e OblastEntry
 						must.Succeed(b, rows.Scan(&e.ID, &e.Message))
@@ -138,7 +137,6 @@ func BenchmarkPostgresSelect(b *testing.B) {
 
 func BenchmarkPostgresSelectOne(b *testing.B) {
 	pqDB := connectToPostgresTestDB(b, totalRecordCountForSelect)
-	pqDBH := oblast.Wrap(pqDB)
 	pgxConn := connectToPgxTestDB(b, totalRecordCountForSelect)
 	pgxConnH := oblast_pgx.Wrap(pgxConn)
 
@@ -157,7 +155,7 @@ func BenchmarkPostgresSelectOne(b *testing.B) {
 
 	b.Run("driver=pq/strategy=oblast", func(b *testing.B) {
 		for b.Loop() {
-			r := must.Return(precomputedQuery.SelectOne(noctx, pqDBH))(b)
+			r := must.Return(precomputedQuery.SelectOne(noctx, pqDB))(b)
 			assert.Equal(b, r.ID, recordID)
 		}
 	})
@@ -175,7 +173,7 @@ func BenchmarkPostgresSelectOne(b *testing.B) {
 				id      int64
 				message string
 			)
-			must.Succeed(b, pqDB.QueryRow(query).Scan(&id, &message))
+			must.Succeed(b, pqDB.Base.QueryRow(query).Scan(&id, &message))
 			assert.Equal(b, id, int64(recordID))
 		}
 	})
@@ -194,7 +192,6 @@ func BenchmarkPostgresSelectOne(b *testing.B) {
 
 func BenchmarkPostgresInsertAndDelete(b *testing.B) {
 	pqDB := connectToPostgresTestDB(b, 0)
-	pqDBH := oblast.Wrap(pqDB)
 	pgxConn := connectToPgxTestDB(b, 0)
 	pgxConnH := oblast_pgx.Wrap(pgxConn)
 
@@ -225,7 +222,7 @@ func BenchmarkPostgresInsertAndDelete(b *testing.B) {
 
 			b.Run("driver=pq/strategy=oblast", func(b *testing.B) {
 				for b.Loop() {
-					insertAndDeleteWithOblast(b, pqDBH)
+					insertAndDeleteWithOblast(b, pqDB)
 				}
 			})
 
@@ -242,10 +239,10 @@ func BenchmarkPostgresInsertAndDelete(b *testing.B) {
 				for b.Loop() {
 					ids := make([]int64, batchSize)
 					for idx := range ids {
-						must.Succeed(b, pqDB.QueryRow(insertQuery, "hello").Scan(&ids[idx]))
+						must.Succeed(b, pqDB.Base.QueryRow(insertQuery, "hello").Scan(&ids[idx]))
 					}
 					for _, id := range ids {
-						_ = must.Return(pqDB.Exec(deleteQuery, id))(b)
+						_ = must.Return(pqDB.Base.Exec(deleteQuery, id))(b)
 					}
 				}
 			})
@@ -265,12 +262,12 @@ func BenchmarkPostgresInsertAndDelete(b *testing.B) {
 			b.Run("driver=pq/strategy=prepared", func(b *testing.B) {
 				for b.Loop() {
 					ids := make([]int64, batchSize)
-					stmtInsert := must.Return(pqDB.Prepare(insertQuery))(b)
+					stmtInsert := must.Return(pqDB.Base.Prepare(insertQuery))(b)
 					defer stmtInsert.Close()
 					for idx := range ids {
 						must.Succeed(b, stmtInsert.QueryRow("hello").Scan(&ids[idx]))
 					}
-					stmtDelete := must.Return(pqDB.Prepare(deleteQuery))(b)
+					stmtDelete := must.Return(pqDB.Base.Prepare(deleteQuery))(b)
 					defer stmtDelete.Close()
 					for _, id := range ids {
 						_ = must.Return(stmtDelete.Exec(id))(b)
@@ -299,7 +296,6 @@ func BenchmarkPostgresInsertAndDelete(b *testing.B) {
 
 func BenchmarkPostgresUpdate(b *testing.B) {
 	pqDB := connectToPostgresTestDB(b, 0)
-	pqDBH := oblast.Wrap(pqDB)
 	pgxConn := connectToPgxTestDB(b, 0)
 	pgxConnH := oblast_pgx.Wrap(pgxConn)
 
@@ -313,7 +309,7 @@ func BenchmarkPostgresUpdate(b *testing.B) {
 	for _, batchSize := range batchSizesForInsertDelete {
 		b.Run("N="+strconv.Itoa(batchSize), func(b *testing.B) {
 			// prepare a bunch of records that we can update, in a reproducible way
-			_ = must.Return(pqDB.Exec(`DELETE FROM entries`))
+			_ = must.Return(pqDB.Base.Exec(`DELETE FROM entries`))
 			_ = must.Return(pgxConn.Exec(noctx, `DELETE FROM entries`))
 			pqRecords := make([]OblastEntry, batchSize)
 			pqRecordsForInsert := make([]*OblastEntry, batchSize)
@@ -325,7 +321,7 @@ func BenchmarkPostgresUpdate(b *testing.B) {
 				pgxRecords[idx] = OblastEntry{Message: "hello"}
 				pgxRecordsForInsert[idx] = &pgxRecords[idx]
 			}
-			must.Succeed(b, store.Insert(noctx, pqDBH, pqRecordsForInsert...))
+			must.Succeed(b, store.Insert(noctx, pqDB, pqRecordsForInsert...))
 			must.Succeed(b, store.Insert(noctx, pgxConnH, pgxRecordsForInsert...))
 
 			// each benchmark will, while looping, write changing values each time in the same way
@@ -348,7 +344,7 @@ func BenchmarkPostgresUpdate(b *testing.B) {
 			}
 
 			b.Run("driver=pq/strategy=oblast", func(b *testing.B) {
-				loop(b, updateWithOblast(b, pqDBH, pqRecords))
+				loop(b, updateWithOblast(b, pqDB, pqRecords))
 			})
 
 			b.Run("driver=pgx/strategy=oblast", func(b *testing.B) {
@@ -360,7 +356,7 @@ func BenchmarkPostgresUpdate(b *testing.B) {
 			b.Run("driver=pq/strategy=straight", func(b *testing.B) {
 				loop(b, func(message string) {
 					for _, r := range pqRecords {
-						_ = must.Return(pqDB.Exec(updateQuery, message, r.ID))(b)
+						_ = must.Return(pqDB.Base.Exec(updateQuery, message, r.ID))(b)
 					}
 				})
 			})
@@ -375,7 +371,7 @@ func BenchmarkPostgresUpdate(b *testing.B) {
 
 			b.Run("driver=pq/strategy=prepared", func(b *testing.B) {
 				loop(b, func(message string) {
-					stmt := must.Return(pqDB.Prepare(updateQuery))(b)
+					stmt := must.Return(pqDB.Base.Prepare(updateQuery))(b)
 					for _, r := range pqRecords {
 						_ = must.Return(stmt.Exec(message, r.ID))(b)
 					}
