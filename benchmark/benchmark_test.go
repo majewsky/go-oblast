@@ -21,13 +21,16 @@ import (
 	"gorm.io/gorm"
 )
 
+// NOTE: In this file, we benchmark different ORMs against each other and against hand-written operations using plain database/sql.
+// All benchmarks are called "BenchmarkORM...".
+
 // Do not use b.Context() within benchmarks, or you will merely demonstrate that using a deep stack of Context objects is expensive.
 var noctx = context.Background()
 
 // This is not a real benchmark (obviously).
 // Its purpose is to be the first line that is printed, while having one of the longest names,
 // so that all other results are aligned with it and the table looks nice.
-func BenchmarkHeadingHeadingHeadingHeadingHeadingHeadingHeadingHeading(b *testing.B) {
+func BenchmarkORMHeadingHeadingHeadingHeadingHeadingHeadingHeadingHeading(b *testing.B) {
 	for b.Loop() {
 		time.Sleep(time.Microsecond)
 	}
@@ -40,7 +43,7 @@ var (
 	batchSizesForUpdate       = []int{1, 2, 4, 8, 16, 100}
 )
 
-func makeTestDB(t testing.TB, recordCount int) (db *sql.DB, dsn string) {
+func makeSqliteTestDB(t testing.TB, recordCount int) (db *sql.DB, dsn string) {
 	dsn = fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db = must.Return(sql.Open("sqlite3", dsn))(t)
 	_ = must.Return(db.Exec(`CREATE TABLE entries (id INTEGER, message TEXT, PRIMARY KEY (id AUTOINCREMENT))`))(t)
@@ -75,8 +78,8 @@ type GormEntry struct {
 
 func (GormEntry) TableName() string { return "entries" }
 
-func BenchmarkSelectMany(b *testing.B) {
-	db, dsn := makeTestDB(b, totalRecordCountForSelect)
+func BenchmarkORMSelectMany(b *testing.B) {
+	db, dsn := makeSqliteTestDB(b, totalRecordCountForSelect)
 	dbh := oblast.Wrap(db)
 
 	// test with different sizes of resultsets (N=1 is an OLTP-like workload,
@@ -171,8 +174,8 @@ func BenchmarkSelectMany(b *testing.B) {
 	}
 }
 
-func BenchmarkSelectOne(b *testing.B) {
-	db, dsn := makeTestDB(b, totalRecordCountForSelect)
+func BenchmarkORMSelectOne(b *testing.B) {
+	db, dsn := makeSqliteTestDB(b, totalRecordCountForSelect)
 	dbh := oblast.Wrap(db)
 
 	// grab a "random" record from the DB, not just the first or the last
@@ -256,8 +259,8 @@ func BenchmarkSelectOne(b *testing.B) {
 	})
 }
 
-func BenchmarkInsertAndDelete(b *testing.B) {
-	db, dsn := makeTestDB(b, 0)
+func BenchmarkORMInsertAndDelete(b *testing.B) {
+	db, dsn := makeSqliteTestDB(b, 0)
 	dbh := oblast.Wrap(db)
 
 	store := oblast.MustNewStore[OblastEntry](
@@ -442,8 +445,8 @@ func BenchmarkInsertAndDelete(b *testing.B) {
 	}
 }
 
-func BenchmarkUpdate(b *testing.B) {
-	db, dsn := makeTestDB(b, 0)
+func BenchmarkORMUpdate(b *testing.B) {
+	db, dsn := makeSqliteTestDB(b, 0)
 	dbh := oblast.Wrap(db)
 
 	store := oblast.MustNewStore[OblastEntry](
@@ -507,6 +510,7 @@ func BenchmarkUpdate(b *testing.B) {
 				for _, r := range recordsForOblast {
 					_ = must.Return(stmt.Exec(message, r.ID))(b)
 				}
+				must.Succeed(b, stmt.Close())
 			}
 			checkRecordsUpdated := func(b *testing.B, message string) {
 				var count int64
