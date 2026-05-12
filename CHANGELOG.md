@@ -3,6 +3,17 @@ SPDX-FileCopyrightText: 2026 Stefan Majewsky <majewsky@gmx.net>
 SPDX-License-Identifier: Apache-2.0
 -->
 
+# v0.7.0 (TBD)
+
+API changes:
+
+- The `Handle` type changes to not cover `*sql.DB` and `*sql.Tx` directly, thus removing the direct dependency on database/sql.
+  This adds a new memory allocation (for wrapping `*sql.DB` or `*sql.Tx` in the wrapper implementing `Handle`)
+  and some CPU overhead because of the interface indirection, but I consider this a worthwhile tradeoff
+  to enable the use of non-standard database drivers like <https://github.com/jackc/pgx>
+  (if the user provides the respective custom implementation of the `Handle` interface).
+  Preliminary benchmarking has already shown that, for the PostgreSQL case, oblast + jackc/pgx is significantly more efficient than oblast + lib/pq.
+
 # v0.6.0 (2026-05-08)
 
 API changes:

@@ -18,7 +18,7 @@ import (
 func TestInsertBasic(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := sql.OpenDB(md)
+	db := oblast.Wrap(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `oblast:"id,auto"`
@@ -52,7 +52,7 @@ func TestInsertBasic(t *testing.T) {
 func TestUpdateBasic(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := sql.OpenDB(md)
+	db := oblast.Wrap(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id,auto"`
@@ -82,7 +82,7 @@ func TestUpdateBasic(t *testing.T) {
 func TestDeleteBasic(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := sql.OpenDB(md)
+	db := oblast.Wrap(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id,auto"`
@@ -112,7 +112,7 @@ func TestDeleteBasic(t *testing.T) {
 func TestUpsertBasicWithAutoColumn(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := sql.OpenDB(md)
+	db := oblast.Wrap(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id,auto"`
@@ -158,7 +158,7 @@ func TestUpsertBasicWithAutoColumn(t *testing.T) {
 func TestWriteQueriesNotPossible(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := sql.OpenDB(md)
+	db := oblast.Wrap(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id,auto"`
@@ -187,7 +187,7 @@ func TestWriteQueriesNotPossible(t *testing.T) {
 func TestWriteQueriesFailDuringPrepare(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := sql.OpenDB(md)
+	db := oblast.Wrap(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id,auto"`
@@ -236,7 +236,7 @@ func TestWriteQueriesFailDuringPrepare(t *testing.T) {
 func TestUpdateOrUpsertFailsOnMissingRecord(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := sql.OpenDB(md)
+	db := oblast.Wrap(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id,auto"`
@@ -271,7 +271,7 @@ func TestUpdateOrUpsertFailsOnMissingRecord(t *testing.T) {
 func TestInsertFailsOnFilledAutoField(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := sql.OpenDB(md)
+	db := oblast.Wrap(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id,auto"`
@@ -294,7 +294,7 @@ func TestInsertFailsOnFilledAutoField(t *testing.T) {
 func TestInsertAndUpsertWithNoAutoColumns(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := sql.OpenDB(md)
+	db := oblast.Wrap(sql.OpenDB(md))
 
 	type relation struct {
 		FooID int64 `db:"foo_id"`
@@ -325,7 +325,7 @@ func TestInsertAndUpsertWithNoAutoColumns(t *testing.T) {
 func TestUpsertFailsOnMixedAutoFieldState(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := sql.OpenDB(md)
+	db := oblast.Wrap(sql.OpenDB(md))
 
 	type complexRecord struct {
 		ID        int64     `db:"id,auto"`

@@ -77,6 +77,7 @@ func (GormEntry) TableName() string { return "entries" }
 
 func BenchmarkSelectMany(b *testing.B) {
 	db, dsn := makeTestDB(b, totalRecordCountForSelect)
+	dbh := oblast.Wrap(db)
 
 	// test with different sizes of resultsets (N=1 is an OLTP-like workload,
 	// then the larger N lean more towards the OLAP side of things)
@@ -95,12 +96,12 @@ func BenchmarkSelectMany(b *testing.B) {
 			precomputedQuery := store.MustPrepareSelectQueryWhere(partialQuery)
 
 			selectWithOblast := func(b *testing.B) {
-				records := must.Return(store.Select(noctx, db, query))(b)
+				records := must.Return(store.Select(noctx, dbh, query))(b)
 				assert.Equal(b, len(records), batchSize)
 			}
 
 			selectWithOblastWhere := func(b *testing.B) {
-				records := must.Return(precomputedQuery.Select(noctx, db))(b)
+				records := must.Return(precomputedQuery.Select(noctx, dbh))(b)
 				assert.Equal(b, len(records), batchSize)
 			}
 
@@ -172,6 +173,7 @@ func BenchmarkSelectMany(b *testing.B) {
 
 func BenchmarkSelectOne(b *testing.B) {
 	db, dsn := makeTestDB(b, totalRecordCountForSelect)
+	dbh := oblast.Wrap(db)
 
 	// grab a "random" record from the DB, not just the first or the last
 	recordID := min(totalRecordCountForSelect*2/3, totalRecordCountForSelect)
@@ -189,12 +191,12 @@ func BenchmarkSelectOne(b *testing.B) {
 	precomputedQuery := store.MustPrepareSelectQueryWhere(partialQuery)
 
 	selectWithOblast := func(b *testing.B) {
-		r := must.Return(store.SelectOne(noctx, db, query))(b)
+		r := must.Return(store.SelectOne(noctx, dbh, query))(b)
 		assert.Equal(b, r.ID, recordID)
 	}
 
 	selectWithOblastWhere := func(b *testing.B) {
-		r := must.Return(precomputedQuery.SelectOne(noctx, db))(b)
+		r := must.Return(precomputedQuery.SelectOne(noctx, dbh))(b)
 		assert.Equal(b, r.ID, recordID)
 	}
 
@@ -256,6 +258,7 @@ func BenchmarkSelectOne(b *testing.B) {
 
 func BenchmarkInsertAndDelete(b *testing.B) {
 	db, dsn := makeTestDB(b, 0)
+	dbh := oblast.Wrap(db)
 
 	store := oblast.MustNewStore[OblastEntry](
 		oblast.SqliteDialect(),
@@ -277,22 +280,22 @@ func BenchmarkInsertAndDelete(b *testing.B) {
 					records[idx] = OblastEntry{Message: "hello"}
 					recordsForInsert[idx] = &records[idx]
 				}
-				must.Succeed(b, store.Insert(noctx, db, recordsForInsert...))
+				must.Succeed(b, store.Insert(noctx, dbh, recordsForInsert...))
 				for _, r := range records {
 					if r.ID == 0 {
 						b.Errorf("ID was not filled!")
 					}
 				}
-				must.Succeed(b, store.Delete(noctx, db, records...))
+				must.Succeed(b, store.Delete(noctx, dbh, records...))
 			}
 			if batchSize == 1 {
 				insertAndDeleteWithOblast = func(b *testing.B) {
 					record := OblastEntry{Message: "hello"}
-					must.Succeed(b, store.Insert(noctx, db, &record))
+					must.Succeed(b, store.Insert(noctx, dbh, &record))
 					if record.ID == 0 {
 						b.Errorf("ID was not filled!")
 					}
-					must.Succeed(b, store.Delete(noctx, db, record))
+					must.Succeed(b, store.Delete(noctx, dbh, record))
 				}
 			}
 
@@ -441,6 +444,7 @@ func BenchmarkInsertAndDelete(b *testing.B) {
 
 func BenchmarkUpdate(b *testing.B) {
 	db, dsn := makeTestDB(b, 0)
+	dbh := oblast.Wrap(db)
 
 	store := oblast.MustNewStore[OblastEntry](
 		oblast.SqliteDialect(),
@@ -462,7 +466,7 @@ func BenchmarkUpdate(b *testing.B) {
 				recordsForOblast[idx] = OblastEntry{Message: "hello"}
 				recordsForOblastForInsert[idx] = &recordsForOblast[idx]
 			}
-			must.Succeed(b, store.Insert(noctx, db, recordsForOblastForInsert...))
+			must.Succeed(b, store.Insert(noctx, dbh, recordsForOblastForInsert...))
 			recordsForGorp := make([]any, batchSize)
 			for idx, r := range recordsForOblast {
 				recordsForGorp[idx] = new(GorpEntry(r))
@@ -477,7 +481,7 @@ func BenchmarkUpdate(b *testing.B) {
 				for idx := range recordsForOblast {
 					recordsForOblast[idx].Message = message
 				}
-				must.Succeed(b, store.Update(noctx, db, recordsForOblast...))
+				must.Succeed(b, store.Update(noctx, dbh, recordsForOblast...))
 			}
 			updateWithGorp := func(b *testing.B, message string) {
 				for _, r := range recordsForGorp {

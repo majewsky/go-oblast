@@ -96,7 +96,6 @@
 package oblast // import "go.xyrillian.de/oblast"
 
 import (
-	"context"
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
@@ -131,25 +130,6 @@ func PrimaryKeyIs(columnNames ...string) PlanOption {
 func StructTagKeyIs(key string) PlanOption {
 	return func(opts *planOpts) { opts.StructTagKey = key }
 }
-
-// Handle is an interface for functions providing direct DB access.
-// It covers methods provided by both *sql.DB and *sql.Tx, thus allowing functions using it to be used both within and outside of transactions.
-type Handle interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
-// TODO: investigate if we can extend type Handle to cover types github.com/jackc/pgx.{Conn,Tx}
-// - those have all these methods, but with different return types that act mostly in the same way
-// - a significant departure is that their Prepare() works wildly differently
-
-// static assertion that the respective types implement the interface
-var (
-	_ Handle = &sql.DB{}
-	_ Handle = &sql.Tx{}
-)
 
 // Store is the main interface of this library.
 //

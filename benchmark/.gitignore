@@ -1,0 +1,3 @@
+# artifacts from running e.g. `go test -bench . -benchmem -memprofile mem.out`
+/benchmark.test
+/*.out
