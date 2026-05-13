@@ -17,6 +17,7 @@ import (
 type Handle = handle.Handle
 
 // SqlHandle wraps types like [*sql.DB] or [*sql.Tx] into a [Handle] that can be used with Oblast.
+// TODO: separate types for wrapped *sql.DB and wrapped *sql.Tx, so we can have those types as embedded fields and forward method implementations
 type SqlHandle[T SqlExecutor] struct {
 	// The original database or transaction handle.
 	// It is safe to read this field to execute operations that Oblast does not handle (e.g. transactions, savepoints or OLAP queries).
