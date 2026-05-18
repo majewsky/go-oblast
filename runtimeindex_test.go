@@ -16,7 +16,7 @@ import (
 func TestRuntimeIndex(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.Wrap(sql.OpenDB(md))
+	db := oblast.NewDB(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id"`

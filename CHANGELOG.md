@@ -3,6 +3,13 @@ SPDX-FileCopyrightText: 2026 Stefan Majewsky <majewsky@gmx.net>
 SPDX-License-Identifier: Apache-2.0
 -->
 
+# v0.9.0 (TBD)
+
+API changes:
+
+- The generic function `Wrap` is replaced with explicit functions `NewDB`, `NewConn` and `NewTx` that yield separate types.
+  This allows our wrapped types to carry the original types from database/sql as embedded types, thus making their use more ergonomic.
+
 # v0.8.0 (2026-05-13)
 
 API changes:

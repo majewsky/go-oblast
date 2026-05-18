@@ -43,14 +43,14 @@ var (
 	batchSizesForUpdate       = []int{1, 2, 4, 8, 16, 100}
 )
 
-func makeSqliteTestDB(t testing.TB, recordCount int) (db oblast.SqlHandle[*sql.DB], dsn string) {
+func makeSqliteTestDB(t testing.TB, recordCount int) (db *oblast.DB, dsn string) {
 	dsn = fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
-	db = oblast.Wrap(must.Return(sql.Open("sqlite3", dsn))(t))
-	_ = must.Return(db.Base.Exec(`CREATE TABLE entries (id INTEGER, message TEXT, PRIMARY KEY (id AUTOINCREMENT))`))(t)
+	db = oblast.NewDB(must.Return(sql.Open("sqlite3", dsn))(t))
+	_ = must.Return(db.Exec(`CREATE TABLE entries (id INTEGER, message TEXT, PRIMARY KEY (id AUTOINCREMENT))`))(t)
 
 	if recordCount > 0 {
 		// fill in some random-looking, but deterministic data
-		stmt := must.Return(db.Base.Prepare(`INSERT INTO entries (id, message) VALUES (?, ?)`))(t)
+		stmt := must.Return(db.Prepare(`INSERT INTO entries (id, message) VALUES (?, ?)`))(t)
 		for idx := range recordCount {
 			buf := sha256.Sum256([]byte(strconv.Itoa(idx)))
 			_ = must.Return(stmt.Exec(idx, fmt.Sprintf("sha256:%x", buf[:])))(t)
@@ -91,7 +91,7 @@ func BenchmarkORMSelectMany(b *testing.B) {
 				oblast.TableNameIs("entries"),
 				oblast.PrimaryKeyIs("id"),
 			)
-			gorpDB := gorp.DbMap{Db: db.Base, Dialect: gorp.SqliteDialect{}}
+			gorpDB := gorp.DbMap{Db: db.DB, Dialect: gorp.SqliteDialect{}}
 			gormDB := must.Return(gorm.Open(sqlite.Open(dsn), &gorm.Config{}))(b)
 			partialQuery := `id < ` + strconv.Itoa(batchSize)
 			query := `SELECT * FROM entries WHERE ` + partialQuery
@@ -120,7 +120,7 @@ func BenchmarkORMSelectMany(b *testing.B) {
 
 			selectWithSqlite := func(b *testing.B) {
 				var count int
-				rows := must.Return(db.Base.Query(query))(b) //nolint:rowserrcheck // false positive
+				rows := must.Return(db.Query(query))(b) //nolint:rowserrcheck // false positive
 				var (
 					id      int64
 					message string
@@ -185,7 +185,7 @@ func BenchmarkORMSelectOne(b *testing.B) {
 		oblast.TableNameIs("entries"),
 		oblast.PrimaryKeyIs("id"),
 	)
-	gorpDB := gorp.DbMap{Db: db.Base, Dialect: gorp.SqliteDialect{}}
+	gorpDB := gorp.DbMap{Db: db.DB, Dialect: gorp.SqliteDialect{}}
 	gormDB := must.Return(gorm.Open(sqlite.Open(dsn), &gorm.Config{}))(b)
 	partialQuery := `id = ` + strconv.Itoa(recordID)
 	query := `SELECT * FROM entries WHERE ` + partialQuery
@@ -217,7 +217,7 @@ func BenchmarkORMSelectOne(b *testing.B) {
 			id      int64
 			message string
 		)
-		must.Succeed(b, db.Base.QueryRow(query).Scan(&id, &message))
+		must.Succeed(b, db.QueryRow(query).Scan(&id, &message))
 		assert.Equal(b, id, int64(recordID))
 	}
 
@@ -265,7 +265,7 @@ func BenchmarkORMInsertAndDelete(b *testing.B) {
 		oblast.TableNameIs("entries"),
 		oblast.PrimaryKeyIs("id"),
 	)
-	gorpDB := gorp.DbMap{Db: db.Base, Dialect: gorp.SqliteDialect{}}
+	gorpDB := gorp.DbMap{Db: db.DB, Dialect: gorp.SqliteDialect{}}
 	gorpDB.AddTableWithName(GorpEntry{}, "entries").SetKeys(true, "id")
 	gormDB := must.Return(gorm.Open(sqlite.Open(dsn), &gorm.Config{}))(b)
 
@@ -351,23 +351,23 @@ func BenchmarkORMInsertAndDelete(b *testing.B) {
 			insertAndDeleteWithStraightExec := func(b *testing.B) {
 				ids := make([]int64, batchSize)
 				for idx := range ids {
-					result := must.Return(db.Base.Exec(`INSERT INTO entries (message) VALUES (?)`, "hello"))(b)
+					result := must.Return(db.Exec(`INSERT INTO entries (message) VALUES (?)`, "hello"))(b)
 					ids[idx] = must.Return(result.LastInsertId())(b)
 				}
 				for _, id := range ids {
-					_ = must.Return(db.Base.Exec(`DELETE FROM entries WHERE id = ?`, id))(b)
+					_ = must.Return(db.Exec(`DELETE FROM entries WHERE id = ?`, id))(b)
 				}
 			}
 
 			insertAndDeleteWithPreparedExec := func(b *testing.B) {
 				ids := make([]int64, batchSize)
-				stmtInsert := must.Return(db.Base.Prepare(`INSERT INTO entries (message) VALUES (?)`))(b)
+				stmtInsert := must.Return(db.Prepare(`INSERT INTO entries (message) VALUES (?)`))(b)
 				defer stmtInsert.Close()
 				for idx := range ids {
 					result := must.Return(stmtInsert.Exec("hello"))(b)
 					ids[idx] = must.Return(result.LastInsertId())(b)
 				}
-				stmtDelete := must.Return(db.Base.Prepare(`DELETE FROM entries WHERE id = ?`))(b)
+				stmtDelete := must.Return(db.Prepare(`DELETE FROM entries WHERE id = ?`))(b)
 				defer stmtDelete.Close()
 				for _, id := range ids {
 					_ = must.Return(stmtDelete.Exec(id))(b)
@@ -377,21 +377,21 @@ func BenchmarkORMInsertAndDelete(b *testing.B) {
 			insertAndDeleteWithStraightQueryRow := func(b *testing.B) {
 				ids := make([]int64, batchSize)
 				for idx := range ids {
-					must.Succeed(b, db.Base.QueryRow(`INSERT INTO entries (message) VALUES (?) RETURNING id`, "hello").Scan(&ids[idx]))
+					must.Succeed(b, db.QueryRow(`INSERT INTO entries (message) VALUES (?) RETURNING id`, "hello").Scan(&ids[idx]))
 				}
 				for _, id := range ids {
-					_ = must.Return(db.Base.Exec(`DELETE FROM entries WHERE id = ?`, id))(b)
+					_ = must.Return(db.Exec(`DELETE FROM entries WHERE id = ?`, id))(b)
 				}
 			}
 
 			insertAndDeleteWithPreparedQueryRow := func(b *testing.B) {
 				ids := make([]int64, batchSize)
-				stmtInsert := must.Return(db.Base.Prepare(`INSERT INTO entries (message) VALUES (?) RETURNING id`))(b)
+				stmtInsert := must.Return(db.Prepare(`INSERT INTO entries (message) VALUES (?) RETURNING id`))(b)
 				defer stmtInsert.Close()
 				for idx := range ids {
 					must.Succeed(b, stmtInsert.QueryRow("hello").Scan(&ids[idx]))
 				}
-				stmtDelete := must.Return(db.Base.Prepare(`DELETE FROM entries WHERE id = ?`))(b)
+				stmtDelete := must.Return(db.Prepare(`DELETE FROM entries WHERE id = ?`))(b)
 				defer stmtDelete.Close()
 				for _, id := range ids {
 					_ = must.Return(stmtDelete.Exec(id))(b)
@@ -450,7 +450,7 @@ func BenchmarkORMUpdate(b *testing.B) {
 		oblast.TableNameIs("entries"),
 		oblast.PrimaryKeyIs("id"),
 	)
-	gorpDB := gorp.DbMap{Db: db.Base, Dialect: gorp.SqliteDialect{}}
+	gorpDB := gorp.DbMap{Db: db.DB, Dialect: gorp.SqliteDialect{}}
 	gorpDB.AddTableWithName(GorpEntry{}, "entries").SetKeys(true, "id")
 	gormDB := must.Return(gorm.Open(sqlite.Open(dsn), &gorm.Config{}))(b)
 
@@ -458,7 +458,7 @@ func BenchmarkORMUpdate(b *testing.B) {
 	for _, batchSize := range batchSizesForUpdate {
 		b.Run("N="+strconv.Itoa(batchSize), func(b *testing.B) {
 			// prepare a bunch of records that we can update, in a reproducible way
-			_ = must.Return(db.Base.Exec(`DELETE FROM entries`))
+			_ = must.Return(db.Exec(`DELETE FROM entries`))
 			recordsForOblast := make([]OblastEntry, batchSize)
 			recordsForOblastForInsert := make([]*OblastEntry, batchSize)
 			for idx := range recordsForOblast {
@@ -498,11 +498,11 @@ func BenchmarkORMUpdate(b *testing.B) {
 			}
 			updateWithStraightSqlite := func(b *testing.B, message string) {
 				for _, r := range recordsForOblast {
-					_ = must.Return(db.Base.Exec(`UPDATE entries SET message = ? WHERE id = ?`, message, r.ID))(b)
+					_ = must.Return(db.Exec(`UPDATE entries SET message = ? WHERE id = ?`, message, r.ID))(b)
 				}
 			}
 			updateWithPreparedSqlite := func(b *testing.B, message string) {
-				stmt := must.Return(db.Base.Prepare(`UPDATE entries SET message = ? WHERE id = ?`))(b)
+				stmt := must.Return(db.Prepare(`UPDATE entries SET message = ? WHERE id = ?`))(b)
 				for _, r := range recordsForOblast {
 					_ = must.Return(stmt.Exec(message, r.ID))(b)
 				}
@@ -510,7 +510,7 @@ func BenchmarkORMUpdate(b *testing.B) {
 			}
 			checkRecordsUpdated := func(b *testing.B, message string) {
 				var count int64
-				must.Succeed(b, db.Base.QueryRow(`SELECT COUNT(*) FROM entries WHERE message = ?`, message).Scan(&count))
+				must.Succeed(b, db.QueryRow(`SELECT COUNT(*) FROM entries WHERE message = ?`, message).Scan(&count))
 				assert.Equal(b, count, int64(batchSize))
 			}
 

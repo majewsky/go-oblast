@@ -12,47 +12,120 @@ import (
 )
 
 // Handle contains behavior that database handles must offer to Oblast.
-// The standard-library types [*sql.DB] and [*sql.Tx] can satisfy this interface through the [Wrap] function.
 // Custom implementations of this interface can be used to connect non-std database drivers to Oblast.
 type Handle = handle.Handle
 
-// SqlHandle wraps types like [*sql.DB] or [*sql.Tx] into a [Handle] that can be used with Oblast.
-// TODO: separate types for wrapped *sql.DB and wrapped *sql.Tx, so we can have those types as embedded fields and forward method implementations
-type SqlHandle[T SqlExecutor] struct {
-	// The original database or transaction handle.
-	// It is safe to read this field to execute operations that Oblast does not handle (e.g. transactions, savepoints or OLAP queries).
-	Base T
+////////////////////////////////////////////////////////////////////////////////
+// public API for database/sql compatibility
+//
+// NOTE: The internal structure of these types looks weird at first glance, with
+// the pointer to the underlying instance duplicated, but of course that's deliberate.
+//
+// If our types implemented [Handle] directly, every function call taking them as an argument
+// of type [Handle] (e.g. any of the methods on [Store]) would allocate a new fat pointer
+// when converting from e.g. [*DB] at the callsite to [Handle] in the argument value.
+//
+// To circumvent this, our types only _have_ [Handle] instances within them within them
+// as an embedded field, thus implementing [Handle] indirectly instead of directly.
 
-	// If this is not true, then any methods on this type will panic.
-	// This is just to enforce that the handle is constructed with Wrap(), thus guaranteeing future compatibility if actual important private struct fields are added later.
-	ok bool
+// DB wraps [*sql.DB] into a [Handle] that can be used with Oblast.
+//
+// Because this type has [*sql.DB] as an embedded field,
+// all methods from that type work on this type as well.
+type DB struct {
+	*sql.DB
+	Handle
 }
 
-// Wrap converts an [*sql.DB] or [*sql.Tx] into a [Handle] that can be used with Oblast functions.
-func Wrap[T SqlExecutor](dbOrTx T) SqlHandle[T] {
-	return SqlHandle[T]{Base: dbOrTx, ok: true}
+// NewDB wraps an instance of [*sql.DB] into Oblast's own [DB] type.
+func NewDB(db *sql.DB) *DB {
+	return &DB{db, sqlHandle[*sql.DB]{db}}
 }
 
-// SqlExecutor is an interface covered by both [*sql.DB] and [*sql.Tx].
-// It appears in the signature of function [Wrap].
-type SqlExecutor interface {
+// Begin is like [sql.DB.Begin], but wraps the resulting transaction for use with Oblast.
+func (db *DB) Begin() (*Tx, error) {
+	tx, err := db.DB.Begin()
+	return maybe(NewTx, tx), err
+}
+
+// BeginTx is like [sql.DB.BeginTx], but wraps the resulting transaction for use with Oblast.
+func (db *DB) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) {
+	tx, err := db.DB.BeginTx(ctx, opts)
+	return maybe(NewTx, tx), err
+}
+
+// Conn is like [sql.DB.Conn], but wraps the resulting connection for use with Oblast.
+func (db *DB) Conn(ctx context.Context) (*Conn, error) {
+	conn, err := db.DB.Conn(ctx)
+	return maybe(NewConn, conn), err
+}
+
+// Conn wraps [*sql.Conn] into a [Handle] that can be used with Oblast.
+//
+// Because this type has [*sql.Conn] as an embedded field,
+// all methods from that type work on this type as well.
+type Conn struct {
+	*sql.Conn
+	Handle
+}
+
+// NewConn wraps an instance of [*sql.Conn] into Oblast's own [Conn] type.
+func NewConn(db *sql.Conn) *Conn {
+	return &Conn{db, sqlHandle[*sql.Conn]{db}}
+}
+
+// BeginTx is like [sql.DB.BeginTx], but wraps the resulting transaction for use with Oblast.
+func (conn *Conn) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) {
+	tx, err := conn.Conn.BeginTx(ctx, opts)
+	return maybe(NewTx, tx), err
+}
+
+// Tx wraps [*sql.Tx] into a [Handle] that can be used with Oblast.
+//
+// Because this type has [*sql.Tx] as an embedded field,
+// all methods from that type work on this type as well.
+type Tx struct {
+	*sql.Tx
+	Handle
+}
+
+// NewTx wraps an instance of [*sql.Tx] into Oblast's own [Tx] type.
+func NewTx(db *sql.Tx) *Tx {
+	return &Tx{db, sqlHandle[*sql.Tx]{db}}
+}
+
+func maybe[T, U any](wrap func(*T) *U, value *T) *U {
+	if value == nil {
+		return nil
+	}
+	return wrap(value)
+}
+
+// prove that we implement the interfaces that we claim
+var (
+	_ Handle = &DB{}
+	_ Handle = &Conn{}
+	_ Handle = &Tx{}
+)
+
+////////////////////////////////////////////////////////////////////////////////
+// Handle implementation for database/sql types
+
+// sqlExecutor is an interface covered by both [*sql.DB], [*sql.Conn] and [*sql.Tx].
+type sqlExecutor interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-// static assertion that the respective types implement the interface
-var (
-	_ SqlExecutor = &sql.DB{}
-	_ SqlExecutor = &sql.Tx{}
-)
+// sqlHandle provides the [Handle] implementation for any type that implements [sqlExecutor].
+type sqlHandle[T sqlExecutor] struct {
+	Base T
+}
 
 // OblastPrepare implements the [Handle] interface.
-func (h SqlHandle[T]) OblastPrepare(ctx context.Context, query string, repeated bool) (handle.Statement, error) {
-	if !h.ok {
-		panic("SqlHandle was not constructed through oblast.Wrap()!")
-	}
+func (h sqlHandle[T]) OblastPrepare(ctx context.Context, query string, repeated bool) (handle.Statement, error) {
 	if !repeated {
 		return wrappedStatement{h.Base, query, nil}, nil
 	}
@@ -64,15 +137,12 @@ func (h SqlHandle[T]) OblastPrepare(ctx context.Context, query string, repeated 
 }
 
 // OblastQuery implements the [Handle] interface.
-func (h SqlHandle[T]) OblastQuery(ctx context.Context, query string, args []any) (handle.Rows, error) {
-	if !h.ok {
-		panic("SqlHandle was not constructed through oblast.Wrap()!")
-	}
+func (h sqlHandle[T]) OblastQuery(ctx context.Context, query string, args []any) (handle.Rows, error) {
 	return h.Base.QueryContext(ctx, query, args...) //nolint:rowserrcheck // the caller does the check
 }
 
 type wrappedStatement struct {
-	db    SqlExecutor
+	db    sqlExecutor
 	query string
 	stmt  *sql.Stmt // nil if repeated = false
 }
