@@ -45,6 +45,7 @@ func prepare(ctx context.Context, db Handle, query, operation string, inputSize 
 //
 // Returns an error if any of the `records` has a non-zero value in any column marked as `db:",auto"`.
 // Records that already exist in the database should be handled with [Store.Update] instead.
+// To automatically decide between INSERT and UPDATE on a per-record basis, use [Store.Upsert] instead.
 func (s Store[R]) Insert(ctx context.Context, db Handle, records ...*R) error {
 	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
 	//       Any expression that does not depend on type R should be factored out into a reusable function.
