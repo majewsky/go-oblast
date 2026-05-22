@@ -74,10 +74,12 @@ func TestQueryConstructionBasic(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+		assert.Equal(t, plan.InsertUsesQueryRow, false)
+		assert.Equal(t, plan.LastInsertIdIsUnsigned, false)
 		assert.Equal(t, plan.Select.Query, "SELECT `ID`, `Description`, `CreatedAt` FROM `basic_records` WHERE ")
 		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
 		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
-		assert.Equal(t, plan.Insert.Query, "INSERT INTO `basic_records` (`Description`, `CreatedAt`) VALUES (?, ?) RETURNING `ID`")
+		assert.Equal(t, plan.Insert.Query, "INSERT INTO `basic_records` (`Description`, `CreatedAt`) VALUES (?, ?)")
 		assert.DeepEqual(t, plan.Insert.ArgumentIndexes, [][]int{{1}, {2}})
 		assert.DeepEqual(t, plan.Insert.ScanIndexes, [][]int{{0}})
 		assert.Equal(t, plan.Upsert.Query, "")
@@ -96,6 +98,7 @@ func TestQueryConstructionBasic(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+		assert.Equal(t, plan.InsertUsesQueryRow, true)
 		assert.Equal(t, plan.Select.Query, `SELECT "ID", "Description", "CreatedAt" FROM "basic_records" WHERE `)
 		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
 		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
@@ -118,10 +121,12 @@ func TestQueryConstructionBasic(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+		assert.Equal(t, plan.InsertUsesQueryRow, false)
+		assert.Equal(t, plan.LastInsertIdIsUnsigned, false)
 		assert.Equal(t, plan.Select.Query, `SELECT "ID", "Description", "CreatedAt" FROM "basic_records" WHERE `)
 		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
 		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
-		assert.Equal(t, plan.Insert.Query, `INSERT INTO "basic_records" ("Description", "CreatedAt") VALUES (?, ?) RETURNING "ID"`)
+		assert.Equal(t, plan.Insert.Query, `INSERT INTO "basic_records" ("Description", "CreatedAt") VALUES (?, ?)`)
 		assert.DeepEqual(t, plan.Insert.ArgumentIndexes, [][]int{{1}, {2}})
 		assert.DeepEqual(t, plan.Insert.ScanIndexes, [][]int{{0}})
 		assert.Equal(t, plan.Upsert.Query, "")
@@ -151,6 +156,7 @@ func TestQueryConstructionWithOnlyPrimaryKey(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+		assert.Equal(t, plan.InsertUsesQueryRow, false)
 		assert.Equal(t, plan.Select.Query, "SELECT `foo_id`, `bar_id` FROM `foo_bar_relations` WHERE ")
 		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
 		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}})
@@ -173,6 +179,7 @@ func TestQueryConstructionWithOnlyPrimaryKey(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+		assert.Equal(t, plan.InsertUsesQueryRow, false)
 		assert.Equal(t, plan.Select.Query, `SELECT "foo_id", "bar_id" FROM "foo_bar_relations" WHERE `)
 		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
 		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}})
@@ -195,6 +202,7 @@ func TestQueryConstructionWithOnlyPrimaryKey(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+		assert.Equal(t, plan.InsertUsesQueryRow, false)
 		assert.Equal(t, plan.Select.Query, `SELECT "foo_id", "bar_id" FROM "foo_bar_relations" WHERE `)
 		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
 		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}})
@@ -227,6 +235,7 @@ func TestQueryConstructionWithoutPrimaryKey(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+		assert.Equal(t, plan.InsertUsesQueryRow, false)
 		assert.Equal(t, plan.Select.Query, "SELECT `foo_id`, `bar_id` FROM `foo_bar_relations` WHERE ")
 		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
 		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}})
@@ -249,6 +258,7 @@ func TestQueryConstructionWithoutPrimaryKey(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+		assert.Equal(t, plan.InsertUsesQueryRow, false)
 		assert.Equal(t, plan.Select.Query, `SELECT "foo_id", "bar_id" FROM "foo_bar_relations" WHERE `)
 		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
 		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}})
@@ -271,6 +281,7 @@ func TestQueryConstructionWithoutPrimaryKey(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+		assert.Equal(t, plan.InsertUsesQueryRow, false)
 		assert.Equal(t, plan.Select.Query, `SELECT "foo_id", "bar_id" FROM "foo_bar_relations" WHERE `)
 		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
 		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}})
@@ -342,6 +353,7 @@ func TestQueryConstructionWithMultiplePrimaryKeyColumns(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+		assert.Equal(t, plan.InsertUsesQueryRow, false)
 		assert.Equal(t, plan.Select.Query, "SELECT `group_id`, `name`, `created_at` FROM `complex_records` WHERE ")
 		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
 		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
@@ -364,6 +376,7 @@ func TestQueryConstructionWithMultiplePrimaryKeyColumns(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+		assert.Equal(t, plan.InsertUsesQueryRow, false)
 		assert.Equal(t, plan.Select.Query, `SELECT "group_id", "name", "created_at" FROM "complex_records" WHERE `)
 		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
 		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
@@ -386,6 +399,7 @@ func TestQueryConstructionWithMultiplePrimaryKeyColumns(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+		assert.Equal(t, plan.InsertUsesQueryRow, false)
 		assert.Equal(t, plan.Select.Query, `SELECT "group_id", "name", "created_at" FROM "complex_records" WHERE `)
 		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
 		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
@@ -420,6 +434,7 @@ func TestQueryConstructionWithMultipleAutoColumns(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+		assert.Equal(t, plan.InsertUsesQueryRow, true)
 		assert.Equal(t, plan.Select.Query, "SELECT `id`, `name`, `created_at` FROM `autogenerated_records` WHERE ")
 		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
 		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
@@ -442,6 +457,7 @@ func TestQueryConstructionWithMultipleAutoColumns(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+		assert.Equal(t, plan.InsertUsesQueryRow, true)
 		assert.Equal(t, plan.Select.Query, `SELECT "id", "name", "created_at" FROM "autogenerated_records" WHERE `)
 		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
 		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
@@ -464,6 +480,7 @@ func TestQueryConstructionWithMultipleAutoColumns(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+		assert.Equal(t, plan.InsertUsesQueryRow, true)
 		assert.Equal(t, plan.Select.Query, `SELECT "id", "name", "created_at" FROM "autogenerated_records" WHERE `)
 		assert.DeepEqual(t, plan.Select.ArgumentIndexes, nil)
 		assert.DeepEqual(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})

@@ -21,32 +21,93 @@ func TestInsertBasic(t *testing.T) {
 	db := oblast.NewDB(sql.OpenDB(md))
 
 	type basicRecord struct {
-		ID   int64  `oblast:"id,auto"`
+		ID   int64  `db:"id,auto"`
+		Name string `db:"name"`
+	}
+
+	// testing with the SQLite dialect exercises the Exec()-based codepath
+	t.Run("driver=sqlite", func(t *testing.T) {
+		store := oblast.MustNewStore[basicRecord](
+			oblast.SqliteDialect(),
+			oblast.TableNameIs("basic_records"),
+			oblast.PrimaryKeyIs("id"),
+		)
+
+		for _, batchSize := range []int{1, oblast.PrepareThreshold - 1, oblast.PrepareThreshold + 1} {
+			t.Run("N="+strconv.Itoa(batchSize), func(t *testing.T) {
+				records := make([]*basicRecord, batchSize)
+				for idx := range batchSize {
+					records[idx] = &basicRecord{Name: "new"}
+					md.ForQuery(`INSERT INTO "basic_records" ("name") VALUES (?)`).
+						ExpectExecWithArgs("new").
+						AndReturnLastInsertId(int64(42 + idx))
+				}
+				must.Succeed(t, store.Insert(ctx, db, records...))
+				for idx, r := range records {
+					assert.Equal(t, r.ID, int64(42+idx))
+				}
+			})
+		}
+	})
+
+	// testing with the Postgres dialect exercises the QueryRow()-based codepath
+	t.Run("driver=postgres", func(t *testing.T) {
+		store := oblast.MustNewStore[basicRecord](
+			oblast.PostgresDialect(),
+			oblast.TableNameIs("basic_records"),
+			oblast.PrimaryKeyIs("id"),
+		)
+
+		for _, batchSize := range []int{1, oblast.PrepareThreshold - 1, oblast.PrepareThreshold + 1} {
+			t.Run("N="+strconv.Itoa(batchSize), func(t *testing.T) {
+				records := make([]*basicRecord, batchSize)
+				for idx := range batchSize {
+					records[idx] = &basicRecord{Name: "new"}
+					md.ForQuery(`INSERT INTO "basic_records" ("name") VALUES ($1) RETURNING "id"`).
+						ExpectQueryWithArgs("new").
+						AndReturnColumns("id").
+						WithRow(int64(42 + idx))
+				}
+				must.Succeed(t, store.Insert(ctx, db, records...))
+				for idx, r := range records {
+					assert.Equal(t, r.ID, int64(42+idx))
+				}
+			})
+		}
+	})
+}
+
+func TestInsertWithUintPrimaryKey(t *testing.T) {
+	ctx := t.Context()
+	md := mock.NewDriver()
+	db := oblast.NewDB(sql.OpenDB(md))
+
+	type exoticRecord struct {
+		ID   uint64 `oblast:"id,auto"`
 		Name string `oblast:"name"`
 	}
-	store := oblast.MustNewStore[basicRecord](
+	store := oblast.MustNewStore[exoticRecord](
 		oblast.SqliteDialect(),
 		oblast.StructTagKeyIs("oblast"), // this test also randomly provides coverage for this option
-		oblast.TableNameIs("basic_records"),
+		oblast.TableNameIs("exotic_records"),
 		oblast.PrimaryKeyIs("id"),
 	)
 
-	for _, batchSize := range []int{1, oblast.PrepareThreshold - 1, oblast.PrepareThreshold + 1} {
-		t.Run("N="+strconv.Itoa(batchSize), func(t *testing.T) {
-			records := make([]*basicRecord, batchSize)
-			for idx := range batchSize {
-				records[idx] = &basicRecord{Name: "new"}
-				md.ForQuery(`INSERT INTO "basic_records" ("name") VALUES (?) RETURNING "id"`).
-					ExpectQueryWithArgs("new").
-					AndReturnColumns("id").
-					WithRow(int64(42 + idx))
-			}
-			must.Succeed(t, store.Insert(ctx, db, records...))
-			for idx, r := range records {
-				assert.Equal(t, r.ID, int64(42+idx))
-			}
-		})
-	}
+	// success case: positive ID fits into uint64
+	md.ForQuery(`INSERT INTO "exotic_records" ("name") VALUES (?)`).
+		ExpectExecWithArgs("new").
+		AndReturnLastInsertId(42)
+	record := exoticRecord{Name: "new"}
+	must.Succeed(t, store.Insert(ctx, db, &record))
+	assert.Equal(t, record.ID, 42)
+
+	// error case: negative ID cannot be converted to uint64
+	md.ForQuery(`INSERT INTO "exotic_records" ("name") VALUES (?)`).
+		ExpectExecWithArgs("another").
+		AndReturnLastInsertId(-42)
+	record = exoticRecord{Name: "another"}
+	err := store.Insert(ctx, db, &record)
+	assert.ErrEqual(t, err, "LastInsertId() = -42 for record with idx = 0 cannot be converted to uint")
 }
 
 func TestUpdateBasic(t *testing.T) {
@@ -124,17 +185,15 @@ func TestUpsertBasicWithAutoColumn(t *testing.T) {
 		oblast.PrimaryKeyIs("id"),
 	)
 
-	md.ForQuery(`INSERT INTO "basic_records" ("name") VALUES (?) RETURNING "id"`).
-		ExpectQueryWithArgs("first needs insert").
-		AndReturnColumns("id").
-		WithRow(int64(1))
+	md.ForQuery(`INSERT INTO "basic_records" ("name") VALUES (?)`).
+		ExpectExecWithArgs("first needs insert").
+		AndReturnLastInsertId(1)
 	md.ForQuery(`UPDATE "basic_records" SET "name" = ? WHERE "id" = ?`).
 		ExpectExecWithArgs("second needs update", 2).
 		AndReturnRowsAffected(1)
-	md.ForQuery(`INSERT INTO "basic_records" ("name") VALUES (?) RETURNING "id"`).
-		ExpectQueryWithArgs("third needs insert").
-		AndReturnColumns("id").
-		WithRow(int64(3))
+	md.ForQuery(`INSERT INTO "basic_records" ("name") VALUES (?)`).
+		ExpectExecWithArgs("third needs insert").
+		AndReturnLastInsertId(3)
 	md.ForQuery(`UPDATE "basic_records" SET "name" = ? WHERE "id" = ?`).
 		ExpectExecWithArgs("fourth needs update", 4).
 		AndReturnRowsAffected(1)
@@ -208,7 +267,7 @@ func TestWriteQueriesFailDuringPrepare(t *testing.T) {
 		}
 
 		err := store.Insert(ctx, db, recordsForInsert...)
-		baseError := `unexpected query: INSERT INTO "basic_records" ("name") VALUES (?) RETURNING "id"`
+		baseError := `unexpected query: INSERT INTO "basic_records" ("name") VALUES (?)`
 		if batchSize < oblast.PrepareThreshold {
 			assert.ErrEqual(t, err, "while inserting record with idx = 0: "+baseError)
 		} else {
@@ -283,10 +342,6 @@ func TestInsertFailsOnFilledAutoField(t *testing.T) {
 		oblast.PrimaryKeyIs("id"),
 	)
 
-	md.ForQuery(`INSERT INTO "basic_records" ("name") VALUES (?) RETURNING "id"`).
-		ExpectQueryWithArgs("existing").
-		AndReturnColumns("id").
-		WithRow(42)
 	err := store.Insert(ctx, db, &basicRecord{ID: 23, Name: "third"})
 	assert.ErrEqual(t, err, `refusing to INSERT record with idx = 0 that already has non-zero values in its "auto" columns`)
 }
@@ -394,6 +449,18 @@ func TestUninitializedTransparentPointerStructs(t *testing.T) {
 	err = nestedRecordStore.Upsert(ctx, db, &freshBrokenRecord)
 	assert.ErrEqual(t, err, `refusing to INSERT or UPDATE record with idx = 0: cannot access all mapped fields because field "timestamps" holds a nil pointer`)
 
+	// check success case on INSERT
+	now := time.Now()
+	freshIntactRecord := nestedRecord{
+		Name:       "foo",
+		timestamps: &timestamps{CreatedAt: now, DeletedAt: nil},
+	}
+	md.ForQuery(`INSERT INTO "nested_records" ("name", "created_at", "deleted_at") VALUES (?, ?, ?)`).
+		ExpectExecWithArgs("foo", now, (*time.Time)(nil)).
+		AndReturnLastInsertId(1)
+	must.Succeed(t, nestedRecordStore.Insert(ctx, db, &freshIntactRecord))
+	assert.Equal(t, freshIntactRecord.ID, 1)
+
 	// check detection on UPDATE
 	existingBrokenRecord := nestedRecord{
 		ID:         42,
@@ -404,6 +471,18 @@ func TestUninitializedTransparentPointerStructs(t *testing.T) {
 	assert.ErrEqual(t, err, `refusing to UPDATE record with idx = 0: cannot access all mapped fields because field "timestamps" holds a nil pointer`)
 	err = nestedRecordStore.Upsert(ctx, db, &freshBrokenRecord)
 	assert.ErrEqual(t, err, `refusing to INSERT or UPDATE record with idx = 0: cannot access all mapped fields because field "timestamps" holds a nil pointer`)
+
+	// check success case on UPDATE
+	now = time.Now()
+	existingIntactRecord := nestedRecord{
+		ID:         42,
+		Name:       "bar",
+		timestamps: &timestamps{CreatedAt: now, DeletedAt: nil},
+	}
+	md.ForQuery(`UPDATE "nested_records" SET "name" = ?, "created_at" = ?, "deleted_at" = ? WHERE "id" = ?`).
+		ExpectExecWithArgs("bar", now, (*time.Time)(nil), 42).
+		AndReturnRowsAffected(1)
+	must.Succeed(t, nestedRecordStore.Update(ctx, db, existingIntactRecord))
 
 	// check that detection on DELETE does not care about transparent pointer structs as long as they do not contain PK fields
 	md.ForQuery(`DELETE FROM "nested_records" WHERE "id" = ?`).
