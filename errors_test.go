@@ -7,7 +7,7 @@ import (
 	"errors"
 	"testing"
 
-	"go.xyrillian.de/oblast/internal/testhelpers/assert"
+	"go.xyrillian.de/gg/assert"
 )
 
 type fooError struct{}
@@ -24,7 +24,7 @@ func TestIOError(t *testing.T) {
 
 	err = newIOError(fooError{}, "File.Close", nil)
 	assert.ErrEqual(t, err, "foo")
-	assert.DeepEqual(t, err, error(fooError{})) // check for no wrapping in type ioError without cleanup error
+	assert.Equal(t, err, error(fooError{})) // check for no wrapping in type ioError without cleanup error
 
 	err = newIOError(nil, "File.Close", barError{})
 	assert.ErrEqual(t, err, "during File.Close(): bar")

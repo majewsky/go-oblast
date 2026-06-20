@@ -11,8 +11,8 @@ import (
 
 	. "go.xyrillian.de/gg/option"
 
+	"go.xyrillian.de/gg/assert"
 	"go.xyrillian.de/oblast"
-	"go.xyrillian.de/oblast/internal/testhelpers/assert"
 	"go.xyrillian.de/oblast/internal/testhelpers/mock"
 	"go.xyrillian.de/oblast/internal/testhelpers/must"
 )
@@ -39,10 +39,10 @@ func TestSelectReturningSomeRecords(t *testing.T) {
 			WithRow("foo", 1).
 			WithRow("bar", 2)
 		records := must.Return(store.Select(ctx, db, `SELECT * FROM basic_records WHERE id < ?`, 3))(t)
-		assert.SliceEqual(t, records,
-			basicRecord{1, "foo"},
-			basicRecord{2, "bar"},
-		)
+		assert.Equal(t, records, []basicRecord{
+			{1, "foo"},
+			{2, "bar"},
+		})
 	})
 
 	t.Run("using Store.SelectWhere", func(t *testing.T) {
@@ -52,10 +52,10 @@ func TestSelectReturningSomeRecords(t *testing.T) {
 			WithRow(1, "ffoo").
 			WithRow(2, "bbar")
 		records := must.Return(store.SelectWhere(ctx, db, `id < ?`, 3))(t)
-		assert.SliceEqual(t, records,
-			basicRecord{1, "ffoo"},
-			basicRecord{2, "bbar"},
-		)
+		assert.Equal(t, records, []basicRecord{
+			{1, "ffoo"},
+			{2, "bbar"},
+		})
 	})
 
 	t.Run("using PreparedSelectQuery.Select", func(t *testing.T) {
@@ -66,10 +66,10 @@ func TestSelectReturningSomeRecords(t *testing.T) {
 			WithRow(2, "bbbar")
 		query := store.MustPrepareSelectQueryWhere(`id < ?`)
 		records := must.Return(query.Select(ctx, db, 3))(t)
-		assert.SliceEqual(t, records,
-			basicRecord{1, "fffoo"},
-			basicRecord{2, "bbbar"},
-		)
+		assert.Equal(t, records, []basicRecord{
+			{1, "fffoo"},
+			{2, "bbbar"},
+		})
 	})
 
 	t.Run("using Store.SelectOne", func(t *testing.T) {
@@ -155,7 +155,7 @@ func TestSelectReturningNoRecords(t *testing.T) {
 			ExpectQueryWithArgs(3).
 			AndReturnColumns("name", "id")
 		records := must.Return(store.Select(ctx, db, `SELECT * FROM basic_records WHERE id < ?`, 3))(t)
-		assert.SliceEqual(t, records, nil...)
+		assert.Equal(t, records, nil)
 	})
 
 	t.Run("using Store.SelectWhere", func(t *testing.T) {
@@ -163,7 +163,7 @@ func TestSelectReturningNoRecords(t *testing.T) {
 			ExpectQueryWithArgs(3).
 			AndReturnColumns("id", "name")
 		records := must.Return(store.SelectWhere(ctx, db, `id < ?`, 3))(t)
-		assert.SliceEqual(t, records, nil...)
+		assert.Equal(t, records, nil)
 	})
 
 	t.Run("using PreparedSelectQuery.Select", func(t *testing.T) {
@@ -172,7 +172,7 @@ func TestSelectReturningNoRecords(t *testing.T) {
 			AndReturnColumns("id", "name")
 		query := store.MustPrepareSelectQueryWhere(`id < ?`)
 		records := must.Return(query.Select(ctx, db, 3))(t)
-		assert.SliceEqual(t, records, nil...)
+		assert.Equal(t, records, nil)
 	})
 
 	t.Run("using Store.SelectOne", func(t *testing.T) {
@@ -363,35 +363,35 @@ func TestSelectIntoEmbeddedTypes(t *testing.T) {
 	t.Run("using Store.Select", func(t *testing.T) {
 		commonSetup(`SELECT * FROM composite_records`)
 		records := must.Return(store.Select(ctx, db, `SELECT * FROM composite_records`))(t)
-		assert.SliceDeepEqual(t, records,
-			compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}},
-			compositeRecord{2, HasCreatedAt{time.Unix(2, 0)}, &HasUpdatedAt{nil}},
-		)
+		assert.Equal(t, records, []compositeRecord{
+			{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}},
+			{2, HasCreatedAt{time.Unix(2, 0)}, &HasUpdatedAt{nil}},
+		})
 	})
 
 	t.Run("using Store.SelectWhere", func(t *testing.T) {
 		commonSetup(`SELECT "id", "created_at", "updated_at" FROM "composite_records" WHERE TRUE`)
 		records := must.Return(store.SelectWhere(ctx, db, `TRUE`))(t)
-		assert.SliceDeepEqual(t, records,
-			compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}},
-			compositeRecord{2, HasCreatedAt{time.Unix(2, 0)}, &HasUpdatedAt{nil}},
-		)
+		assert.Equal(t, records, []compositeRecord{
+			{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}},
+			{2, HasCreatedAt{time.Unix(2, 0)}, &HasUpdatedAt{nil}},
+		})
 	})
 
 	t.Run("using PreparedSelectQuery.Select", func(t *testing.T) {
 		commonSetup(`SELECT "id", "created_at", "updated_at" FROM "composite_records" WHERE TRUE`)
 		query := store.MustPrepareSelectQueryWhere(`TRUE`)
 		records := must.Return(query.Select(ctx, db))(t)
-		assert.SliceDeepEqual(t, records,
-			compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}},
-			compositeRecord{2, HasCreatedAt{time.Unix(2, 0)}, &HasUpdatedAt{nil}},
-		)
+		assert.Equal(t, records, []compositeRecord{
+			{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}},
+			{2, HasCreatedAt{time.Unix(2, 0)}, &HasUpdatedAt{nil}},
+		})
 	})
 
 	t.Run("using Store.SelectOne", func(t *testing.T) {
 		commonSetup(`SELECT * FROM composite_records`)
 		record := must.Return(store.SelectOne(ctx, db, `SELECT * FROM composite_records`))(t)
-		assert.DeepEqual(t, record,
+		assert.Equal(t, record,
 			compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}},
 		)
 	})
@@ -399,7 +399,7 @@ func TestSelectIntoEmbeddedTypes(t *testing.T) {
 	t.Run("using Store.SelectOneOrNone", func(t *testing.T) {
 		commonSetup(`SELECT * FROM composite_records`)
 		record := must.Return(store.SelectOneOrNone(ctx, db, `SELECT * FROM composite_records`))(t)
-		assert.DeepEqual(t, record,
+		assert.Equal(t, record,
 			Some(compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}}),
 		)
 	})
@@ -407,7 +407,7 @@ func TestSelectIntoEmbeddedTypes(t *testing.T) {
 	t.Run("using Store.SelectOneWhere", func(t *testing.T) {
 		commonSetup(`SELECT "id", "created_at", "updated_at" FROM "composite_records" WHERE TRUE`)
 		record := must.Return(store.SelectOneWhere(ctx, db, `TRUE`))(t)
-		assert.DeepEqual(t, record,
+		assert.Equal(t, record,
 			compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}},
 		)
 	})
@@ -415,7 +415,7 @@ func TestSelectIntoEmbeddedTypes(t *testing.T) {
 	t.Run("using Store.SelectOneOrNoneWhere", func(t *testing.T) {
 		commonSetup(`SELECT "id", "created_at", "updated_at" FROM "composite_records" WHERE TRUE`)
 		record := must.Return(store.SelectOneOrNoneWhere(ctx, db, `TRUE`))(t)
-		assert.DeepEqual(t, record,
+		assert.Equal(t, record,
 			Some(compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}}),
 		)
 	})
@@ -424,7 +424,7 @@ func TestSelectIntoEmbeddedTypes(t *testing.T) {
 		commonSetup(`SELECT "id", "created_at", "updated_at" FROM "composite_records" WHERE TRUE`)
 		query := store.MustPrepareSelectQueryWhere(`TRUE`)
 		record := must.Return(query.SelectOne(ctx, db))(t)
-		assert.DeepEqual(t, record,
+		assert.Equal(t, record,
 			compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}},
 		)
 	})
@@ -433,7 +433,7 @@ func TestSelectIntoEmbeddedTypes(t *testing.T) {
 		commonSetup(`SELECT "id", "created_at", "updated_at" FROM "composite_records" WHERE TRUE`)
 		query := store.MustPrepareSelectQueryWhere(`TRUE`)
 		record := must.Return(query.SelectOneOrNone(ctx, db))(t)
-		assert.DeepEqual(t, record,
+		assert.Equal(t, record,
 			Some(compositeRecord{1, HasCreatedAt{time.Unix(1, 0)}, &HasUpdatedAt{new(time.Unix(3, 0))}}),
 		)
 	})

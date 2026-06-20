@@ -14,8 +14,8 @@ import (
 
 	"github.com/go-gorp/gorp/v3"
 	_ "github.com/mattn/go-sqlite3"
+	"go.xyrillian.de/gg/assert"
 	"go.xyrillian.de/oblast"
-	"go.xyrillian.de/oblast/internal/testhelpers/assert"
 	"go.xyrillian.de/oblast/internal/testhelpers/must"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"

@@ -15,9 +15,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	_ "github.com/lib/pq"
+	"go.xyrillian.de/gg/assert"
 	"go.xyrillian.de/oblast"
 	"go.xyrillian.de/oblast/benchmark/internal/oblast_pgx"
-	"go.xyrillian.de/oblast/internal/testhelpers/assert"
 	"go.xyrillian.de/oblast/internal/testhelpers/must"
 )
 

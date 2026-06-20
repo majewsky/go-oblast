@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"go.xyrillian.de/gg/assert"
 	"go.xyrillian.de/oblast"
-	"go.xyrillian.de/oblast/internal/testhelpers/assert"
 	"go.xyrillian.de/oblast/internal/testhelpers/mock"
 	"go.xyrillian.de/oblast/internal/testhelpers/must"
 )
@@ -206,12 +206,12 @@ func TestUpsertBasicWithAutoColumn(t *testing.T) {
 	}
 	must.Succeed(t, store.Upsert(ctx, db, records...))
 
-	assert.SliceDeepEqual(t, records,
-		&basicRecord{ID: 1, Name: "first needs insert"},
-		&basicRecord{ID: 2, Name: "second needs update"},
-		&basicRecord{ID: 3, Name: "third needs insert"},
-		&basicRecord{ID: 4, Name: "fourth needs update"},
-	)
+	assert.Equal(t, records, []*basicRecord{
+		{ID: 1, Name: "first needs insert"},
+		{ID: 2, Name: "second needs update"},
+		{ID: 3, Name: "third needs insert"},
+		{ID: 4, Name: "fourth needs update"},
+	})
 }
 
 func TestWriteQueriesNotPossible(t *testing.T) {

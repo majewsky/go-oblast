@@ -7,8 +7,8 @@ import (
 	"database/sql"
 	"testing"
 
+	"go.xyrillian.de/gg/assert"
 	"go.xyrillian.de/oblast"
-	"go.xyrillian.de/oblast/internal/testhelpers/assert"
 	"go.xyrillian.de/oblast/internal/testhelpers/mock"
 	"go.xyrillian.de/oblast/internal/testhelpers/must"
 )
@@ -43,7 +43,7 @@ func TestRuntimeIndex(t *testing.T) {
 		// test success path
 		commonSetup()
 		result := must.Return(byName.IndexFrom(store.SelectWhere(ctx, db, `id > 0`)))(t)
-		assert.DeepEqual(t, result, map[string]basicRecord{
+		assert.Equal(t, result, map[string]basicRecord{
 			"foo": {1, "foo"},
 			"bar": {2, "bar"},
 			"baz": {3, "baz"},
@@ -60,7 +60,7 @@ func TestRuntimeIndex(t *testing.T) {
 		// test success path
 		commonSetup()
 		result := must.Return(byFirstLetter.PartitionFrom(store.SelectWhere(ctx, db, `id > 0`)))(t)
-		assert.DeepEqual(t, result, map[string][]basicRecord{
+		assert.Equal(t, result, map[string][]basicRecord{
 			"f": {{1, "foo"}},
 			"b": {{2, "bar"}, {3, "baz"}},
 		})
