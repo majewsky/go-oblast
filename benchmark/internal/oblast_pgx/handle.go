@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.xyrillian.de/oblast/handle"
 )
 
@@ -22,13 +23,15 @@ type Handle interface {
 
 var (
 	_ Handle = &pgx.Conn{}
-	_ Handle = pgx.Tx(nil)
+	_ Handle = &pgxpool.Conn{}
+	_ Handle = pgx.Tx(&pgxpool.Tx{})
 )
 
-// TODO: offer wrapping for pgxpool.Pool and pgxpool.Conn?
 func Wrap(h Handle) handle.Handle {
 	switch h := h.(type) {
 	case *pgx.Conn:
+		return wrappedHandle{h}
+	case *pgxpool.Conn:
 		return wrappedHandle{h}
 	case pgx.Tx:
 		return wrappedHandle{h}
@@ -54,6 +57,9 @@ func (h wrappedHandle) OblastPrepare(ctx context.Context, query string, repeated
 	case *pgx.Conn:
 		stmt, err := inner.Prepare(ctx, name, query)
 		return wrappedPreparedStatement{ctx, stmt, h.inner}, err
+	case *pgxpool.Conn:
+		// pgxpool.Conn does not have Prepare()
+		return wrappedUnpreparedStatement{query, h.inner}, nil
 	case pgx.Tx:
 		stmt, err := inner.Conn().Prepare(ctx, name, query)
 		return wrappedPreparedStatement{ctx, stmt, h.inner}, err
@@ -67,6 +73,8 @@ func deallocate(ctx context.Context, h Handle, stmt *pgconn.StatementDescription
 	switch h := h.(type) {
 	case *pgx.Conn:
 		return h.Deallocate(ctx, stmt.Name)
+	case *pgxpool.Conn:
+		panic("unreachable") // because func OblastPrepare() does not return a wrappedPreparedStatement for this underlying type
 	case pgx.Tx:
 		return h.Conn().Deallocate(ctx, stmt.Name)
 	default:
