@@ -3,6 +3,13 @@ SPDX-FileCopyrightText: 2026 Stefan Majewsky <majewsky@gmx.net>
 SPDX-License-Identifier: Apache-2.0
 -->
 
+# v0.12.0 (TBD)
+
+Changes:
+
+- Computations performed during `NewStore` are now cached, thus improving performance for repeated calls with the same arguments,
+  at the extra cost of one mutex read lock (amortized) per call.
+
 # v0.11.0 (2026-07-17)
 
 API changes:
