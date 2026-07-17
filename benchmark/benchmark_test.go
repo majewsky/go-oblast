@@ -335,7 +335,7 @@ func BenchmarkORMInsertAndDelete(b *testing.B) {
 					}
 				}
 				result := gormDB.Delete(&records)
-				assert.ErrEqual(b, result.Error, "<success>")
+				assert.ErrEqual(b, result.Error, nil)
 				assert.Equal(b, result.RowsAffected, int64(batchSize))
 			}
 			if batchSize == 1 {
@@ -343,7 +343,7 @@ func BenchmarkORMInsertAndDelete(b *testing.B) {
 					record := GormEntry{Message: "hello"}
 					must.Succeed(b, gorm.G[GormEntry](gormDB).Create(b.Context(), &record))
 					result := gormDB.Delete(&record)
-					assert.ErrEqual(b, result.Error, "<success>")
+					assert.ErrEqual(b, result.Error, nil)
 					assert.Equal(b, result.RowsAffected, 1)
 				}
 			}
@@ -493,7 +493,7 @@ func BenchmarkORMUpdate(b *testing.B) {
 					recordsForGorm[idx].Message = message
 				}
 				result := gormDB.Save(&recordsForGorm)
-				assert.ErrEqual(b, result.Error, "<success>")
+				assert.ErrEqual(b, result.Error, nil)
 				assert.Equal(b, result.RowsAffected, int64(batchSize))
 			}
 			updateWithStraightSqlite := func(b *testing.B, message string) {
