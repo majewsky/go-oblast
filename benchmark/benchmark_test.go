@@ -98,12 +98,12 @@ func BenchmarkORMSelectMany(b *testing.B) {
 			precomputedQuery := store.MustPrepareSelectQueryWhere(partialQuery)
 
 			selectWithOblast := func(b *testing.B) {
-				records := must.Return(store.Select(noctx, db, query))(b)
+				records := must.Return(store.Select(noctx, db, query).Collect())(b)
 				assert.Equal(b, len(records), batchSize)
 			}
 
 			selectWithOblastWhere := func(b *testing.B) {
-				records := must.Return(precomputedQuery.Select(noctx, db))(b)
+				records := must.Return(precomputedQuery.Select(noctx, db).Collect())(b)
 				assert.Equal(b, len(records), batchSize)
 			}
 

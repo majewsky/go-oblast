@@ -92,14 +92,14 @@ func BenchmarkPostgresSelect(b *testing.B) {
 
 			b.Run("driver=pq/strategy=oblast", func(b *testing.B) {
 				for b.Loop() {
-					records := must.Return(store.Select(noctx, pqDB, query))(b)
+					records := must.Return(store.Select(noctx, pqDB, query).Collect())(b)
 					assert.Equal(b, len(records), batchSize)
 				}
 			})
 
 			b.Run("driver=pgx/strategy=oblast", func(b *testing.B) {
 				for b.Loop() {
-					records := must.Return(store.Select(noctx, pgxConnH, query))(b)
+					records := must.Return(store.Select(noctx, pgxConnH, query).Collect())(b)
 					assert.Equal(b, len(records), batchSize)
 				}
 			})
