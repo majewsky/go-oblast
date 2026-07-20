@@ -11,7 +11,7 @@ import (
 )
 
 // Handle contains behavior that database handles must offer to Oblast.
-// The standard-library types [*sql.DB] and [*sql.Tx] can satisfy this interface through the Wrap() function from the main package.
+// The standard-library types [*sql.DB], [*sql.Conn] and [*sql.Tx] can satisfy this interface through the respective types of the same name from the main Oblast package.
 // Custom implementations of this interface can be used to connect non-std database drivers to Oblast.
 //
 // The method names are deliberately clunky to avoid name clashes with well-known methods like [sql.DB.Prepare] or [sql.DB.Query].
@@ -27,7 +27,7 @@ type Handle interface {
 	OblastQuery(ctx context.Context, query string, args []any) (Rows, error)
 }
 
-// Statement represents a prepared statement returned from [Handle.Prepare].
+// Statement represents a prepared statement returned from the OblastPrepare() method of [Handle].
 // The Exec and QueryRow methods shall work similarly to the respective functions on [*sql.Tx], as indicated in the comments.
 //
 // You will not need to interact with this type except when implementing your own [Handle].
@@ -41,7 +41,7 @@ type Statement interface {
 	QueryRow(ctx context.Context, args []any, slots []any) error
 }
 
-// Rows represents a set of rows returned from [Handle.Query] in response to a DB query.
+// Rows represents a set of rows returned from the OblastQuery() method of [Handle].
 // All methods shall behave like on the [*sql.Rows] type from std.
 //
 // You will not need to interact with this type except when implementing your own [Handle].
