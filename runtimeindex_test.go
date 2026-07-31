@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"go.xyrillian.de/gg/assert"
+	"go.xyrillian.de/gg/gsql"
 	"go.xyrillian.de/oblast"
 	"go.xyrillian.de/oblast/internal/testhelpers/mock"
 	"go.xyrillian.de/oblast/internal/testhelpers/must"
@@ -16,7 +17,7 @@ import (
 func TestRuntimeIndex(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id"`

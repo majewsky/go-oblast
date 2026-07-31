@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"go.xyrillian.de/gg/assert"
+	"go.xyrillian.de/gg/gsql"
 	"go.xyrillian.de/oblast"
 	"go.xyrillian.de/oblast/internal/testhelpers/mock"
 	"go.xyrillian.de/oblast/internal/testhelpers/must"
@@ -18,7 +19,7 @@ import (
 func TestInsertBasic(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id,auto"`
@@ -80,7 +81,7 @@ func TestInsertBasic(t *testing.T) {
 func TestInsertWithUintPrimaryKey(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	type exoticRecord struct {
 		ID   uint64 `oblast:"id,auto"`
@@ -113,7 +114,7 @@ func TestInsertWithUintPrimaryKey(t *testing.T) {
 func TestUpdateBasic(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id,auto"`
@@ -143,7 +144,7 @@ func TestUpdateBasic(t *testing.T) {
 func TestDeleteBasic(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id,auto"`
@@ -173,7 +174,7 @@ func TestDeleteBasic(t *testing.T) {
 func TestUpsertBasicWithAutoColumn(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id,auto"`
@@ -217,7 +218,7 @@ func TestUpsertBasicWithAutoColumn(t *testing.T) {
 func TestWriteQueriesNotPossible(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id,auto"`
@@ -246,7 +247,7 @@ func TestWriteQueriesNotPossible(t *testing.T) {
 func TestWriteQueriesFailDuringPrepare(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id,auto"`
@@ -295,7 +296,7 @@ func TestWriteQueriesFailDuringPrepare(t *testing.T) {
 func TestUpdateOrUpsertFailsOnMissingRecord(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id,auto"`
@@ -330,7 +331,7 @@ func TestUpdateOrUpsertFailsOnMissingRecord(t *testing.T) {
 func TestInsertFailsOnFilledAutoField(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id,auto"`
@@ -349,7 +350,7 @@ func TestInsertFailsOnFilledAutoField(t *testing.T) {
 func TestInsertAndUpsertWithNoAutoColumns(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	type relation struct {
 		FooID int64 `db:"foo_id"`
@@ -380,7 +381,7 @@ func TestInsertAndUpsertWithNoAutoColumns(t *testing.T) {
 func TestUpsertFailsOnMixedAutoFieldState(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	type complexRecord struct {
 		ID        int64     `db:"id,auto"`
@@ -405,7 +406,7 @@ func TestUpsertFailsOnMixedAutoFieldState(t *testing.T) {
 func TestUninitializedTransparentPointerStructs(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	// declare a record type that has a transparent pointer struct containing non-primary-key fields
 	type timestamps struct {

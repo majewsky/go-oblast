@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	_ "github.com/lib/pq"
 	"go.xyrillian.de/gg/assert"
+	"go.xyrillian.de/gg/gsql"
 	"go.xyrillian.de/oblast"
 	"go.xyrillian.de/oblast/benchmark/internal/oblast_pgx"
 	"go.xyrillian.de/oblast/internal/testhelpers/must"
@@ -36,9 +37,9 @@ func BenchmarkPostgresHeadingHeadingHeadingHeadingHeadingHeadingHeadingHeading(b
 
 const defaultPostgresDSN = "host=localhost user=postgres dbname=oblast_benchmark sslmode=disable"
 
-func connectToPostgresTestDB(t testing.TB, recordCount int) *oblast.DB {
+func connectToPostgresTestDB(t testing.TB, recordCount int) *gsql.DB {
 	dsn := cmp.Or(os.Getenv("BENCHMARK_POSTGRES_DSN"), defaultPostgresDSN)
-	db := oblast.NewDB(must.Return(sql.Open("postgres", dsn))(t))
+	db := gsql.NewDB(must.Return(sql.Open("postgres", dsn))(t))
 	_ = must.Return(db.Exec(`CREATE TEMPORARY TABLE entries (id BIGSERIAL, message TEXT)`))(t)
 
 	if recordCount > 0 {
@@ -204,7 +205,7 @@ func BenchmarkPostgresInsertAndDelete(b *testing.B) {
 	// test with different amounts of records
 	for _, batchSize := range batchSizesForInsertDelete {
 		b.Run("N="+strconv.Itoa(batchSize), func(b *testing.B) {
-			insertAndDeleteWithOblast := func(b *testing.B, dbh oblast.Handle) {
+			insertAndDeleteWithOblast := func(b *testing.B, dbh gsql.Handle) {
 				records := make([]OblastEntry, batchSize)
 				recordsForInsert := make([]*OblastEntry, batchSize)
 				for idx := range records {
@@ -334,7 +335,7 @@ func BenchmarkPostgresUpdate(b *testing.B) {
 				}
 			}
 
-			updateWithOblast := func(b *testing.B, dbh oblast.Handle, records []OblastEntry) func(string) {
+			updateWithOblast := func(b *testing.B, dbh gsql.Handle, records []OblastEntry) func(string) {
 				return func(message string) {
 					for idx := range records {
 						records[idx].Message = message

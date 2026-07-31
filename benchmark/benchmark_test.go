@@ -15,6 +15,7 @@ import (
 	"github.com/go-gorp/gorp/v3"
 	_ "github.com/mattn/go-sqlite3"
 	"go.xyrillian.de/gg/assert"
+	"go.xyrillian.de/gg/gsql"
 	"go.xyrillian.de/oblast"
 	"go.xyrillian.de/oblast/internal/testhelpers/must"
 	"gorm.io/driver/sqlite"
@@ -43,9 +44,9 @@ var (
 	batchSizesForUpdate       = []int{1, 2, 4, 8, 16, 100}
 )
 
-func makeSqliteTestDB(t testing.TB, recordCount int) (db *oblast.DB, dsn string) {
+func makeSqliteTestDB(t testing.TB, recordCount int) (db *gsql.DB, dsn string) {
 	dsn = fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
-	db = oblast.NewDB(must.Return(sql.Open("sqlite3", dsn))(t))
+	db = gsql.NewDB(must.Return(sql.Open("sqlite3", dsn))(t))
 	_ = must.Return(db.Exec(`CREATE TABLE entries (id INTEGER, message TEXT, PRIMARY KEY (id AUTOINCREMENT))`))(t)
 
 	if recordCount > 0 {

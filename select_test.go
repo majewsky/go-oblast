@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"go.xyrillian.de/gg/gsql"
 	. "go.xyrillian.de/gg/option"
 
 	"go.xyrillian.de/gg/assert"
@@ -20,7 +21,7 @@ import (
 func TestSelectReturningSomeRecords(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id"`
@@ -138,7 +139,7 @@ func TestSelectReturningSomeRecords(t *testing.T) {
 func TestSelectReturningNoRecords(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id"`
@@ -229,7 +230,7 @@ func TestSelectReturningNoRecords(t *testing.T) {
 func TestSelectIntoUnexpectedField(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID          int64  `db:"id"`
@@ -268,7 +269,7 @@ func TestSelectIntoUnexpectedField(t *testing.T) {
 func TestSelectWithScanError(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID        int64     `db:"id"`
@@ -331,7 +332,7 @@ func TestSelectWithScanError(t *testing.T) {
 func TestSelectIntoEmbeddedTypes(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	type HasCreatedAt struct {
 		CreatedAt time.Time `db:"created_at"`
@@ -442,7 +443,7 @@ func TestSelectIntoEmbeddedTypes(t *testing.T) {
 func TestSelectCapturingQueryError(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id"`
@@ -490,7 +491,7 @@ func TestSelectCapturingQueryError(t *testing.T) {
 func TestSelectCapturingCloseError(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id"`
@@ -553,7 +554,7 @@ func TestSelectCapturingCloseError(t *testing.T) {
 func TestSelectNotPossibleWithoutTableName(t *testing.T) {
 	ctx := t.Context()
 	md := mock.NewDriver()
-	db := oblast.NewDB(sql.OpenDB(md))
+	db := gsql.NewDB(sql.OpenDB(md))
 
 	type basicRecord struct {
 		ID   int64  `db:"id"`

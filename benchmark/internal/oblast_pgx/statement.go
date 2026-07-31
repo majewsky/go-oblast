@@ -8,7 +8,7 @@ import (
 	"database/sql"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"go.xyrillian.de/oblast/handle"
+	"go.xyrillian.de/gg/gsql"
 )
 
 type wrappedPreparedStatement struct {
@@ -23,38 +23,38 @@ type wrappedUnpreparedStatement struct {
 }
 
 var (
-	_ handle.Statement = wrappedPreparedStatement{}
-	_ handle.Statement = wrappedUnpreparedStatement{}
+	_ gsql.Statement = wrappedPreparedStatement{}
+	_ gsql.Statement = wrappedUnpreparedStatement{}
 )
 
-// Close implements the [handle.Statement] interface.
+// Close implements the [gsql.Statement] interface.
 func (s wrappedPreparedStatement) Close() error {
 	return deallocate(s.ctx, s.handle, s.statement)
 }
 
-// Close implements the [handle.Statement] interface.
+// Close implements the [gsql.Statement] interface.
 func (s wrappedUnpreparedStatement) Close() error {
 	return nil
 }
 
-// Exec implements the [handle.Statement] interface.
+// Exec implements the [gsql.Statement] interface.
 func (s wrappedPreparedStatement) Exec(ctx context.Context, args []any) (sql.Result, error) {
 	result, err := s.handle.Exec(ctx, s.statement.Name, args...)
 	return wrappedResult{result}, err
 }
 
-// Exec implements the [handle.Statement] interface.
+// Exec implements the [gsql.Statement] interface.
 func (s wrappedUnpreparedStatement) Exec(ctx context.Context, args []any) (sql.Result, error) {
 	result, err := s.handle.Exec(ctx, s.query, args...)
 	return wrappedResult{result}, err
 }
 
-// QueryRow implements the [handle.Statement] interface.
+// QueryRow implements the [gsql.Statement] interface.
 func (s wrappedPreparedStatement) QueryRow(ctx context.Context, args, slots []any) error {
 	return s.handle.QueryRow(ctx, s.statement.Name, args...).Scan(slots...)
 }
 
-// QueryRow implements the [handle.Statement] interface.
+// QueryRow implements the [gsql.Statement] interface.
 func (s wrappedUnpreparedStatement) QueryRow(ctx context.Context, args, slots []any) error {
 	return s.handle.QueryRow(ctx, s.query, args...).Scan(slots...)
 }

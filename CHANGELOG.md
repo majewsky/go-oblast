@@ -3,6 +3,12 @@ SPDX-FileCopyrightText: 2026 Stefan Majewsky <majewsky@gmx.net>
 SPDX-License-Identifier: Apache-2.0
 -->
 
+# v0.13.0 (TBD)
+
+API changes:
+
+- The types `Handle`, `DB`, `Conn` and `Tx` have moved to `go.xyrillian.de/gg/gsql`.
+
 # v0.12.0 (2026-07-17)
 
 Changes:

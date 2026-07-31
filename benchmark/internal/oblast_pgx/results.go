@@ -9,16 +9,16 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"go.xyrillian.de/oblast/handle"
+	"go.xyrillian.de/gg/gsql"
 )
 
 type wrappedRows struct {
 	inner pgx.Rows
 }
 
-var _ handle.Rows = wrappedRows{}
+var _ gsql.Rows = wrappedRows{}
 
-// Columns implements the [handle.Rows] interface.
+// Columns implements the [gsql.Rows] interface.
 func (r wrappedRows) Columns() ([]string, error) {
 	descriptions := r.inner.FieldDescriptions()
 	result := make([]string, len(descriptions))
@@ -28,23 +28,23 @@ func (r wrappedRows) Columns() ([]string, error) {
 	return result, nil
 }
 
-// Close implements the [handle.Rows] interface.
+// Close implements the [gsql.Rows] interface.
 func (r wrappedRows) Close() error {
 	r.inner.Close()
 	return nil
 }
 
-// Err implements the [handle.Rows] interface.
+// Err implements the [gsql.Rows] interface.
 func (r wrappedRows) Err() error {
 	return r.inner.Err()
 }
 
-// Next implements the [handle.Rows] interface.
+// Next implements the [gsql.Rows] interface.
 func (r wrappedRows) Next() bool {
 	return r.inner.Next()
 }
 
-// Scan implements the [handle.Rows] interface.
+// Scan implements the [gsql.Rows] interface.
 func (r wrappedRows) Scan(args ...any) error {
 	return r.inner.Scan(args...)
 }

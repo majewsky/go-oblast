@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"go.xyrillian.de/oblast/handle"
+	"go.xyrillian.de/gg/gsql"
 )
 
 type Handle interface {
@@ -27,7 +27,7 @@ var (
 	_ Handle = pgx.Tx(&pgxpool.Tx{})
 )
 
-func Wrap(h Handle) handle.Handle {
+func Wrap(h Handle) gsql.Handle {
 	switch h := h.(type) {
 	case *pgx.Conn:
 		return wrappedHandle{h}
@@ -46,8 +46,8 @@ type wrappedHandle struct {
 	inner Handle
 }
 
-// OblastPrepare implements the [handle.Handle] interface.
-func (h wrappedHandle) OblastPrepare(ctx context.Context, query string, repeated bool) (handle.Statement, error) {
+// GSQLPrepare implements the [gsql.Handle] interface.
+func (h wrappedHandle) GSQLPrepare(ctx context.Context, query string, repeated bool) (gsql.Statement, error) {
 	if !repeated {
 		return wrappedUnpreparedStatement{query, h.inner}, nil
 	}
@@ -74,7 +74,7 @@ func deallocate(ctx context.Context, h Handle, stmt *pgconn.StatementDescription
 	case *pgx.Conn:
 		return h.Deallocate(ctx, stmt.Name)
 	case *pgxpool.Conn:
-		panic("unreachable") // because func OblastPrepare() does not return a wrappedPreparedStatement for this underlying type
+		panic("unreachable") // because func GSQLPrepare() does not return a wrappedPreparedStatement for this underlying type
 	case pgx.Tx:
 		return h.Conn().Deallocate(ctx, stmt.Name)
 	default:
@@ -82,8 +82,8 @@ func deallocate(ctx context.Context, h Handle, stmt *pgconn.StatementDescription
 	}
 }
 
-// OblastQuery implements the [handle.Handle] interface.
-func (h wrappedHandle) OblastQuery(ctx context.Context, query string, args []any) (handle.Rows, error) {
+// GSQLQuery implements the [gsql.Handle] interface.
+func (h wrappedHandle) GSQLQuery(ctx context.Context, query string, args []any) (gsql.Rows, error) {
 	rows, err := h.inner.Query(ctx, query, args...)
 	return wrappedRows{rows}, err
 }
