@@ -24,7 +24,7 @@
 //
 // Then use it many times to perform load and store operations:
 //
-//	func doStuff(db *oblast.DB) error {
+//	func doStuff(db *gsql.DB) error {
 //		newEntry := LogEntry{
 //			CreatedAt: time.Now(),
 //			Message: "Hello World.",
@@ -42,9 +42,12 @@
 //		fmt.Printf("there are %d log entries so far", len(allEntries))
 //	}
 //
-// In this example, "oblast.DB" is a thin wrapper around [*sql.DB], which can be obtained with the [NewDB] function.
-// A [*DB] can be used in the same way as an [*sql.DB], but if Oblast is only to be used for specific functions,
-// then individual [*sql.Conn] or [*sql.Tx] instances can also be wrapped with the [NewConn] and [NewTx] functions.
+// In this example, [*gsql.DB] is a thin wrapper around [*sql.DB], which can be obtained with the [gsql.NewDB] function.
+// A [*gsql.DB] can be used in the same way as an [*sql.DB], but if Oblast is only to be used for specific functions,
+// then individual [*sql.Conn] or [*sql.Tx] instances can also be wrapped with the [gsql.NewConn] and [gsql.NewTx] functions.
+//
+// The gsql package serves as an abstraction around different database driver libraries,
+// allowing Oblast to also be used with different database drivers such as pgx (see documentation in package gsql for details).
 //
 // # Mapping rules for record types
 //
@@ -104,12 +107,15 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"reflect"
+
+	"go.xyrillian.de/gg/gsql"
 )
 
 var (
 	// the following types appear in docstring links
 	_ sql.Scanner              = nil
 	_ driver.NamedValueChecker = nil
+	_ *gsql.DB                 = nil
 )
 
 // PlanOption is an option that can be given to [NewStore] to influence query planning for a certain type of record.
