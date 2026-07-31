@@ -3,6 +3,10 @@ SPDX-FileCopyrightText: 2026 Stefan Majewsky <majewsky@gmx.net>
 SPDX-License-Identifier: Apache-2.0
 -->
 
+# v0.13.1 (2026-07-31)
+
+No changes to the previous version. The Go module proxy refused to pick up v0.13.0 because the tag was pushed before the `main` branch was updated. Hopefully it will pick up this release.
+
 # v0.13.0 (2026-07-31)
 
 API changes:
