@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"reflect"
 
+	"go.xyrillian.de/gg/errext"
+
 	"go.xyrillian.de/oblast/handle"
 )
 
@@ -72,15 +74,15 @@ func (s Store[R]) insertUsing(ctx context.Context, stmt handle.Statement, db Han
 		v := reflect.ValueOf(r).Elem()
 		err := checkTransparentPointerStructFieldsInitialized("INSERT", idx, v, s.plan, false)
 		if err != nil {
-			return newIOError(err, "Stmt.Close", stmt.Close())
+			return errext.WithCleanup(err, "Stmt.Close", stmt.Close())
 		}
 		err = insertRecord(ctx, s.plan, v, idx, stmt, argumentIndexes, argumentSlots, scanIndexes, scanSlots)
 		if err != nil {
-			return newIOError(err, "Stmt.Close", stmt.Close())
+			return errext.WithCleanup(err, "Stmt.Close", stmt.Close())
 		}
 	}
 
-	return newIOError(nil, "Stmt.Close", stmt.Close())
+	return errext.WithCleanup(nil, "Stmt.Close", stmt.Close())
 }
 
 func insertRecord(ctx context.Context, plan plan, v reflect.Value, recordIndex int, stmt handle.Statement, argumentIndexes [][]int, argumentSlots []any, scanIndexes [][]int, scanSlots []any) error {
@@ -172,17 +174,17 @@ func (s Store[R]) Update(ctx context.Context, db Handle, records ...R) error {
 		v := reflect.ValueOf(&records[idx]).Elem()
 		err := checkTransparentPointerStructFieldsInitialized("UPDATE", idx, v, s.plan, false)
 		if err != nil {
-			return newIOError(err, "Stmt.Close", stmt.Close())
+			return errext.WithCleanup(err, "Stmt.Close", stmt.Close())
 		}
 		rowsAffected, err := updateRecord(ctx, v, idx, stmt, argumentIndexes, argumentSlots)
 		if err == nil && rowsAffected == 0 {
 			err = MissingRecordError[R]{records[idx], s.plan}
 		}
 		if err != nil {
-			return newIOError(err, "Stmt.Close", stmt.Close())
+			return errext.WithCleanup(err, "Stmt.Close", stmt.Close())
 		}
 	}
-	return newIOError(nil, "Stmt.Close", stmt.Close())
+	return errext.WithCleanup(nil, "Stmt.Close", stmt.Close())
 }
 
 func updateRecord(ctx context.Context, v reflect.Value, recordIndex int, stmt handle.Statement, argumentIndexes [][]int, argumentSlots []any) (int64, error) {
@@ -221,17 +223,17 @@ func (s Store[R]) Delete(ctx context.Context, db Handle, records ...R) error {
 		v := reflect.ValueOf(&records[idx]).Elem()
 		err := deleteRecord(ctx, s.plan, v, idx, stmt, argumentIndexes, argumentSlots)
 		if err != nil {
-			return newIOError(err, "Stmt.Close", stmt.Close())
+			return errext.WithCleanup(err, "Stmt.Close", stmt.Close())
 		}
 	}
 
-	return newIOError(nil, "Stmt.Close", stmt.Close())
+	return errext.WithCleanup(nil, "Stmt.Close", stmt.Close())
 }
 
 func deleteRecord(ctx context.Context, plan plan, v reflect.Value, recordIndex int, stmt handle.Statement, argumentIndexes [][]int, argumentSlots []any) error {
 	err := checkTransparentPointerStructFieldsInitialized("DELETE", recordIndex, v, plan, true)
 	if err != nil {
-		return newIOError(err, "Stmt.Close", stmt.Close())
+		return errext.WithCleanup(err, "Stmt.Close", stmt.Close())
 	}
 	for idx, index := range argumentIndexes {
 		argumentSlots[idx] = v.FieldByIndex(index).Interface()
@@ -270,12 +272,12 @@ func (s Store[R]) Upsert(ctx context.Context, db Handle, records ...*R) error {
 	}
 	updateStmt, err := prepare(ctx, db, s.plan.Update.Query, "Update", 0)
 	if err != nil {
-		return newIOError(err, "InsertStmt.Close", insertStmt.Close())
+		return errext.WithCleanup(err, "InsertStmt.Close", insertStmt.Close())
 	}
 
 	err = s.doUpsert(ctx, db, insertStmt, updateStmt, records)
-	err = newIOError(err, "InsertStmt.Close", insertStmt.Close())
-	err = newIOError(err, "UpdateStmt.Close", updateStmt.Close())
+	err = errext.WithCleanup(err, "InsertStmt.Close", insertStmt.Close())
+	err = errext.WithCleanup(err, "UpdateStmt.Close", updateStmt.Close())
 	return err
 }
 

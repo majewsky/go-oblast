@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"go.xyrillian.de/gg/errext"
 	. "go.xyrillian.de/gg/option"
 	"go.xyrillian.de/oblast/handle"
 )
@@ -56,7 +57,7 @@ func startSelectQuery(ctx context.Context, db Handle, plan plan, query string, a
 	columnNames, err := rows.Columns()
 	if err != nil {
 		err = fmt.Errorf("during rows.Columns(): %w", err)
-		return selection{Err: newIOError(err, "Rows.Close", rows.Close())}
+		return selection{Err: errext.WithCleanup(err, "Rows.Close", rows.Close())}
 	}
 	indexes := make([][]int, len(columnNames))
 	for idx, columnName := range columnNames {
@@ -67,7 +68,7 @@ func startSelectQuery(ctx context.Context, db Handle, plan plan, query string, a
 				"result has column %q in position %d, but no field in type %s has `db:%[1]q`",
 				columnName, idx, plan.TypeName,
 			)
-			return selection{Err: newIOError(err, "Rows.Close", rows.Close())}
+			return selection{Err: errext.WithCleanup(err, "Rows.Close", rows.Close())}
 		}
 	}
 
@@ -167,7 +168,7 @@ func selectOne(ctx context.Context, db Handle, plan plan, v reflect.Value, query
 		return err
 	}
 	err = stmt.QueryRow(ctx, args, slots)
-	return newIOError(err, "Stmt.Close", stmt.Close())
+	return errext.WithCleanup(err, "Stmt.Close", stmt.Close())
 }
 
 func noRowsToNone[R any](record R, err error) (Option[R], error) {
@@ -271,7 +272,7 @@ func (s selection) collectRow(v reflect.Value, slots []any) error {
 	}
 	err := s.Rows.Scan(slots...)
 	if err != nil {
-		return newIOError(err, "Rows.Close", s.Rows.Close())
+		return errext.WithCleanup(err, "Rows.Close", s.Rows.Close())
 	}
 	return nil
 }
@@ -350,7 +351,7 @@ func (s Selection[R]) Foreach(action func(R) error) error {
 		}
 		err = action(record)
 		if err != nil {
-			return newIOError(err, "Rows.Close", s.Rows.Close())
+			return errext.WithCleanup(err, "Rows.Close", s.Rows.Close())
 		}
 	}
 	return nil

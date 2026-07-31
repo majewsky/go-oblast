@@ -30,8 +30,8 @@ github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UV
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
-go.xyrillian.de/gg v1.11.1 h1:7P3kDFkTmR7jx2riYi0GwX5uhgrsL37QSrN16xH/n8E=
-go.xyrillian.de/gg v1.11.1/go.mod h1:DoO4fQSWIrBRlNlCjVyrYM0kAEBt/Jg2GkMH+cGRZ0k=
+go.xyrillian.de/gg v1.12.0 h1:oW9S91y36lS72D3p9a4axqjkD9zkkjkNZ12+PaZHpos=
+go.xyrillian.de/gg v1.12.0/go.mod h1:DoO4fQSWIrBRlNlCjVyrYM0kAEBt/Jg2GkMH+cGRZ0k=
 go.xyrillian.de/oblast v0.11.0 h1:ZqHsxoQW/LPgtQ/jXlG1X3DLTYkgxf9zzrDYyykXJG4=
 go.xyrillian.de/oblast v0.11.0/go.mod h1:sYCzxyVFzzL43EglZJn7Vtd8kfHYBwKff/Us4yF8k+Q=
 golang.org/x/sync v0.22.0 h1:SZjpbeLmrCk4xhRSZFNZW5gFUeCeFgjekvI/+gfScek=
