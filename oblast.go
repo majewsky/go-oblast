@@ -102,6 +102,9 @@
 //	}
 package oblast // import "go.xyrillian.de/oblast"
 
+// TODO: adapt selectOneValue() and selectSeveralValues() from gg/pgruntime/helpers.go into the public API here (reusing Selection[R] appropriately)
+// TODO: also consider if this pattern can be adapted to select pairs/triples/etc. of values in a convenient way, e.g. oblast.Select(ctx, db, `SELECT id, name FROM objects`).Foreach(func (id int64, name string) error { ... })
+
 import (
 	"database/sql"
 	"database/sql/driver"
