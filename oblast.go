@@ -102,8 +102,13 @@
 //	}
 package oblast // import "go.xyrillian.de/oblast"
 
-// TODO: adapt selectOneValue() and selectSeveralValues() from gg/pgruntime/helpers.go into the public API here (reusing Selection[R] appropriately)
+// TODO: adapt selectOneValue() and selectSeveralValues() from gg/pgruntime/helpers.go into the public API here (reusing RecordSet[R] appropriately)
+// -> TODO: RecordSet internals are incompatible with this; add new type ResultSet with identical public API
 // TODO: also consider if this pattern can be adapted to select pairs/triples/etc. of values in a convenient way, e.g. oblast.Select(ctx, db, `SELECT id, name FROM objects`).Foreach(func (id int64, name string) error { ... })
+// -> idea: new types Tuple2[A,B], Tuple3[A,B,C], etc. with methods Cardinality() int and SplatPointers([]any) on pointer receiver
+// -> problem: feels unergonomic (just from thinking about it, not from writing code)
+// TODO: big new idea: new variant of Store ctor that skips query planning entirely and does not look at struct tags at all, instead just counting the number of fields and splatting into those; so for a query like `SELECT t.id, o.name, r.status FROM things t JOIN relations r ON ... JOIN objects o ON ...`, we can just have struct{ID int64; Name string; Status string}
+// -> then for the single-value usecase, we could have a shorthand for selecting on struct{JustOneField T}
 
 import (
 	"database/sql"

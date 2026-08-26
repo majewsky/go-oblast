@@ -8,6 +8,7 @@ SPDX-License-Identifier: Apache-2.0
 API changes:
 
 - Add plan option `ReadOnly`.
+- Rename type `Selection` to `RecordSet`.
 
 # v0.13.2 (2026-07-31)
 

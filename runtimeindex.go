@@ -32,7 +32,7 @@ func (i RuntimeIndex[R, K]) Index(records []R) map[K]R {
 
 // IndexFrom is like Index, but can directly wrap a [Store.Select] or [Store.SelectWhere] call.
 // If there is an error, it is passed through unchanged.
-func (i RuntimeIndex[R, K]) IndexFrom(s Selection[R]) (map[K]R, error) {
+func (i RuntimeIndex[R, K]) IndexFrom(s RecordSet[R]) (map[K]R, error) {
 	result := make(map[K]R)
 	err := s.Foreach(func(record R) error {
 		result[i(record)] = record
@@ -54,7 +54,7 @@ func (i RuntimeIndex[R, K]) Partition(records []R) map[K][]R {
 
 // PartitionFrom is like Partition, but can directly wrap a [Store.Select] or [Store.SelectWhere] call.
 // If there is an error, it is passed through unchanged.
-func (i RuntimeIndex[R, K]) PartitionFrom(s Selection[R]) (map[K][]R, error) {
+func (i RuntimeIndex[R, K]) PartitionFrom(s RecordSet[R]) (map[K][]R, error) {
 	result := make(map[K][]R)
 	err := s.Foreach(func(record R) error {
 		key := i(record)
