@@ -13,6 +13,30 @@ import (
 	"go.xyrillian.de/gg/assert"
 )
 
+// Clears all fields of `p` that are not used when actually running queries,
+// i.e. intermediate fields holding analysis results that went into query planning.
+// This is used to shorten the assertions in TestQueryConstruction...() below.
+func onlyQueryPlans(p plan) plan {
+	p.AllColumnNames = nil
+	p.AutoColumnNames = nil
+	p.IndexByColumnName = nil
+	p.PrimaryKeyColumnNames = nil
+	p.TableName = ""
+	p.TypeName = ""
+	return p
+}
+
+// Basically the opposite of onlyQueryPlans.
+// TestPlanFieldTraversal() only cares about the analysis part, not the query construction phase.
+func onlyAnalysisResult(p plan) plan {
+	p.Select = plannedQuery{}
+	p.Insert = plannedQuery{}
+	p.Upsert = plannedQuery{}
+	p.Update = plannedQuery{}
+	p.Delete = plannedQuery{}
+	return p
+}
+
 func TestPlanFieldTraversal(t *testing.T) {
 	type Timestamps struct {
 		CreatedAt time.Time  `db:"created_at"`
@@ -38,7 +62,7 @@ func TestPlanFieldTraversal(t *testing.T) {
 	// 5. traverses into "Timestamps" and includes its fields as well
 	// 6. traverses into "yetMoreTimestamps" as well (despite the extra pointer and the type being private)
 	// 7. recognizes "id" as an autofilled column
-	plan, err := buildPlan(reflect.TypeFor[Log](), PostgresDialect(), planOpts{
+	p, err := buildPlan(reflect.TypeFor[Log](), PostgresDialect(), planOpts{
 		StructTagKey:          "db",
 		TableName:             "log_entries",
 		PrimaryKeyColumnNames: []string{"id"},
@@ -46,16 +70,20 @@ func TestPlanFieldTraversal(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	assert.Equal(t, plan.TableName, "log_entries")
-	assert.Equal(t, plan.AllColumnNames, []string{"id", "Message", "created_at", "updated_at", "deleted_at"})
-	assert.Equal(t, plan.PrimaryKeyColumnNames, []string{"id"})
-	assert.Equal(t, plan.AutoColumnNames, []string{"id"})
-	assert.Equal(t, plan.IndexByColumnName, map[string][]int{
-		"id":         {0},
-		"Message":    {1},
-		"created_at": {4, 0},
-		"updated_at": {4, 1},
-		"deleted_at": {5, 0},
+	assert.Equal(t, onlyAnalysisResult(p), plan{
+		TypeName:              "Log",
+		TableName:             "log_entries",
+		AllColumnNames:        []string{"id", "Message", "created_at", "updated_at", "deleted_at"},
+		PrimaryKeyColumnNames: []string{"id"},
+		AutoColumnNames:       []string{"id"},
+		IndexByColumnName: map[string][]int{
+			"id":         {0},
+			"Message":    {1},
+			"created_at": {4, 0},
+			"updated_at": {4, 1},
+			"deleted_at": {5, 0},
+		},
+		InsertUsesQueryRow: true,
 	})
 }
 
@@ -72,74 +100,82 @@ func TestQueryConstructionBasic(t *testing.T) {
 	}
 
 	t.Run("MariaDBDialect", func(t *testing.T) {
-		plan, err := buildPlan(reflect.TypeFor[record](), MariaDBDialect(), opts)
+		p, err := buildPlan(reflect.TypeFor[record](), MariaDBDialect(), opts)
 		if err != nil {
 			t.Error(err)
 		}
-		assert.Equal(t, plan.InsertUsesQueryRow, false)
-		assert.Equal(t, plan.LastInsertIdIsUnsigned, false)
-		assert.Equal(t, plan.Select.Query, "SELECT `ID`, `Description`, `CreatedAt` FROM `basic_records` WHERE ")
-		assert.Equal(t, plan.Select.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
-		assert.Equal(t, plan.Insert.Query, "INSERT INTO `basic_records` (`Description`, `CreatedAt`) VALUES (?, ?)")
-		assert.Equal(t, plan.Insert.ArgumentIndexes, [][]int{{1}, {2}})
-		assert.Equal(t, plan.Insert.ScanIndexes, [][]int{{0}})
-		assert.Equal(t, plan.Upsert.Query, "")
-		assert.Equal(t, plan.Upsert.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Upsert.ScanIndexes, nil)
-		assert.Equal(t, plan.Update.Query, "UPDATE `basic_records` SET `Description` = ?, `CreatedAt` = ? WHERE `ID` = ?")
-		assert.Equal(t, plan.Update.ArgumentIndexes, [][]int{{1}, {2}, {0}})
-		assert.Equal(t, plan.Update.ScanIndexes, nil)
-		assert.Equal(t, plan.Delete.Query, "DELETE FROM `basic_records` WHERE `ID` = ?")
-		assert.Equal(t, plan.Delete.ArgumentIndexes, [][]int{{0}})
-		assert.Equal(t, plan.Delete.ScanIndexes, nil)
+		assert.Equal(t, onlyQueryPlans(p), plan{
+			Select: plannedQuery{
+				Query:       "SELECT `ID`, `Description`, `CreatedAt` FROM `basic_records` WHERE ",
+				ScanIndexes: [][]int{{0}, {1}, {2}},
+			},
+			Insert: plannedQuery{
+				Query:           "INSERT INTO `basic_records` (`Description`, `CreatedAt`) VALUES (?, ?)",
+				ArgumentIndexes: [][]int{{1}, {2}},
+				ScanIndexes:     [][]int{{0}},
+			},
+			Update: plannedQuery{
+				Query:           "UPDATE `basic_records` SET `Description` = ?, `CreatedAt` = ? WHERE `ID` = ?",
+				ArgumentIndexes: [][]int{{1}, {2}, {0}},
+			},
+			Delete: plannedQuery{
+				Query:           "DELETE FROM `basic_records` WHERE `ID` = ?",
+				ArgumentIndexes: [][]int{{0}},
+			},
+		})
 	})
 
 	t.Run("PostgresDialect", func(t *testing.T) {
-		plan, err := buildPlan(reflect.TypeFor[record](), PostgresDialect(), opts)
+		p, err := buildPlan(reflect.TypeFor[record](), PostgresDialect(), opts)
 		if err != nil {
 			t.Error(err)
 		}
-		assert.Equal(t, plan.InsertUsesQueryRow, true)
-		assert.Equal(t, plan.Select.Query, `SELECT "ID", "Description", "CreatedAt" FROM "basic_records" WHERE `)
-		assert.Equal(t, plan.Select.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
-		assert.Equal(t, plan.Insert.Query, `INSERT INTO "basic_records" ("Description", "CreatedAt") VALUES ($1, $2) RETURNING "ID"`)
-		assert.Equal(t, plan.Insert.ArgumentIndexes, [][]int{{1}, {2}})
-		assert.Equal(t, plan.Insert.ScanIndexes, [][]int{{0}})
-		assert.Equal(t, plan.Upsert.Query, "")
-		assert.Equal(t, plan.Upsert.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Upsert.ScanIndexes, nil)
-		assert.Equal(t, plan.Update.Query, `UPDATE "basic_records" SET "Description" = $1, "CreatedAt" = $2 WHERE "ID" = $3`)
-		assert.Equal(t, plan.Update.ArgumentIndexes, [][]int{{1}, {2}, {0}})
-		assert.Equal(t, plan.Update.ScanIndexes, nil)
-		assert.Equal(t, plan.Delete.Query, `DELETE FROM "basic_records" WHERE "ID" = $1`)
-		assert.Equal(t, plan.Delete.ArgumentIndexes, [][]int{{0}})
-		assert.Equal(t, plan.Delete.ScanIndexes, nil)
+		assert.Equal(t, onlyQueryPlans(p), plan{
+			InsertUsesQueryRow: true,
+			Select: plannedQuery{
+				Query:       `SELECT "ID", "Description", "CreatedAt" FROM "basic_records" WHERE `,
+				ScanIndexes: [][]int{{0}, {1}, {2}},
+			},
+			Insert: plannedQuery{
+				Query:           `INSERT INTO "basic_records" ("Description", "CreatedAt") VALUES ($1, $2) RETURNING "ID"`,
+				ArgumentIndexes: [][]int{{1}, {2}},
+				ScanIndexes:     [][]int{{0}},
+			},
+			Update: plannedQuery{
+				Query:           `UPDATE "basic_records" SET "Description" = $1, "CreatedAt" = $2 WHERE "ID" = $3`,
+				ArgumentIndexes: [][]int{{1}, {2}, {0}},
+			},
+			Delete: plannedQuery{
+				Query:           `DELETE FROM "basic_records" WHERE "ID" = $1`,
+				ArgumentIndexes: [][]int{{0}},
+			},
+		})
 	})
 
 	t.Run("SqliteDialect", func(t *testing.T) {
-		plan, err := buildPlan(reflect.TypeFor[record](), SqliteDialect(), opts)
+		p, err := buildPlan(reflect.TypeFor[record](), SqliteDialect(), opts)
 		if err != nil {
 			t.Error(err)
 		}
-		assert.Equal(t, plan.InsertUsesQueryRow, false)
-		assert.Equal(t, plan.LastInsertIdIsUnsigned, false)
-		assert.Equal(t, plan.Select.Query, `SELECT "ID", "Description", "CreatedAt" FROM "basic_records" WHERE `)
-		assert.Equal(t, plan.Select.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
-		assert.Equal(t, plan.Insert.Query, `INSERT INTO "basic_records" ("Description", "CreatedAt") VALUES (?, ?)`)
-		assert.Equal(t, plan.Insert.ArgumentIndexes, [][]int{{1}, {2}})
-		assert.Equal(t, plan.Insert.ScanIndexes, [][]int{{0}})
-		assert.Equal(t, plan.Upsert.Query, "")
-		assert.Equal(t, plan.Upsert.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Upsert.ScanIndexes, nil)
-		assert.Equal(t, plan.Update.Query, `UPDATE "basic_records" SET "Description" = ?, "CreatedAt" = ? WHERE "ID" = ?`)
-		assert.Equal(t, plan.Update.ArgumentIndexes, [][]int{{1}, {2}, {0}})
-		assert.Equal(t, plan.Update.ScanIndexes, nil)
-		assert.Equal(t, plan.Delete.Query, `DELETE FROM "basic_records" WHERE "ID" = ?`)
-		assert.Equal(t, plan.Delete.ArgumentIndexes, [][]int{{0}})
-		assert.Equal(t, plan.Delete.ScanIndexes, nil)
+		assert.Equal(t, onlyQueryPlans(p), plan{
+			Select: plannedQuery{
+				Query:       `SELECT "ID", "Description", "CreatedAt" FROM "basic_records" WHERE `,
+				ScanIndexes: [][]int{{0}, {1}, {2}},
+			},
+			Insert: plannedQuery{
+				Query:           `INSERT INTO "basic_records" ("Description", "CreatedAt") VALUES (?, ?)`,
+				ArgumentIndexes: [][]int{{1}, {2}},
+				ScanIndexes:     [][]int{{0}},
+			},
+			Update: plannedQuery{
+				Query:           `UPDATE "basic_records" SET "Description" = ?, "CreatedAt" = ? WHERE "ID" = ?`,
+				ArgumentIndexes: [][]int{{1}, {2}, {0}},
+			},
+			Delete: plannedQuery{
+				Query:           `DELETE FROM "basic_records" WHERE "ID" = ?`,
+				ArgumentIndexes: [][]int{{0}},
+			},
+		})
 	})
 }
 
@@ -155,72 +191,78 @@ func TestQueryConstructionWithOnlyPrimaryKey(t *testing.T) {
 	}
 
 	t.Run("MariaDBDialect", func(t *testing.T) {
-		plan, err := buildPlan(reflect.TypeFor[relation](), MariaDBDialect(), opts)
+		p, err := buildPlan(reflect.TypeFor[relation](), MariaDBDialect(), opts)
 		if err != nil {
 			t.Error(err)
 		}
-		assert.Equal(t, plan.InsertUsesQueryRow, false)
-		assert.Equal(t, plan.Select.Query, "SELECT `foo_id`, `bar_id` FROM `foo_bar_relations` WHERE ")
-		assert.Equal(t, plan.Select.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Select.ScanIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Insert.Query, "INSERT INTO `foo_bar_relations` (`foo_id`, `bar_id`) VALUES (?, ?)")
-		assert.Equal(t, plan.Insert.ArgumentIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Insert.ScanIndexes, nil)
-		assert.Equal(t, plan.Upsert.Query, "INSERT INTO `foo_bar_relations` (`foo_id`, `bar_id`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `foo_id` = VALUES(`foo_id`)")
-		assert.Equal(t, plan.Upsert.ArgumentIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Upsert.ScanIndexes, nil)
-		assert.Equal(t, plan.Update.Query, "")
-		assert.Equal(t, plan.Update.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Update.ScanIndexes, nil)
-		assert.Equal(t, plan.Delete.Query, "DELETE FROM `foo_bar_relations` WHERE `foo_id` = ? AND `bar_id` = ?")
-		assert.Equal(t, plan.Delete.ArgumentIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Delete.ScanIndexes, nil)
+		assert.Equal(t, onlyQueryPlans(p), plan{
+			Select: plannedQuery{
+				Query:       "SELECT `foo_id`, `bar_id` FROM `foo_bar_relations` WHERE ",
+				ScanIndexes: [][]int{{0}, {1}},
+			},
+			Insert: plannedQuery{
+				Query:           "INSERT INTO `foo_bar_relations` (`foo_id`, `bar_id`) VALUES (?, ?)",
+				ArgumentIndexes: [][]int{{0}, {1}},
+			},
+			Upsert: plannedQuery{
+				Query:           "INSERT INTO `foo_bar_relations` (`foo_id`, `bar_id`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `foo_id` = VALUES(`foo_id`)",
+				ArgumentIndexes: [][]int{{0}, {1}},
+			},
+			Delete: plannedQuery{
+				Query:           "DELETE FROM `foo_bar_relations` WHERE `foo_id` = ? AND `bar_id` = ?",
+				ArgumentIndexes: [][]int{{0}, {1}},
+			},
+		})
 	})
 
 	t.Run("PostgresDialect", func(t *testing.T) {
-		plan, err := buildPlan(reflect.TypeFor[relation](), PostgresDialect(), opts)
+		p, err := buildPlan(reflect.TypeFor[relation](), PostgresDialect(), opts)
 		if err != nil {
 			t.Error(err)
 		}
-		assert.Equal(t, plan.InsertUsesQueryRow, false)
-		assert.Equal(t, plan.Select.Query, `SELECT "foo_id", "bar_id" FROM "foo_bar_relations" WHERE `)
-		assert.Equal(t, plan.Select.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Select.ScanIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Insert.Query, `INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES ($1, $2)`)
-		assert.Equal(t, plan.Insert.ArgumentIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Insert.ScanIndexes, nil)
-		assert.Equal(t, plan.Upsert.Query, `INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES ($1, $2) ON CONFLICT ("foo_id", "bar_id") DO NOTHING`)
-		assert.Equal(t, plan.Upsert.ArgumentIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Upsert.ScanIndexes, nil)
-		assert.Equal(t, plan.Update.Query, "")
-		assert.Equal(t, plan.Update.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Update.ScanIndexes, nil)
-		assert.Equal(t, plan.Delete.Query, `DELETE FROM "foo_bar_relations" WHERE "foo_id" = $1 AND "bar_id" = $2`)
-		assert.Equal(t, plan.Delete.ArgumentIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Delete.ScanIndexes, nil)
+		assert.Equal(t, onlyQueryPlans(p), plan{
+			Select: plannedQuery{
+				Query:       `SELECT "foo_id", "bar_id" FROM "foo_bar_relations" WHERE `,
+				ScanIndexes: [][]int{{0}, {1}},
+			},
+			Insert: plannedQuery{
+				Query:           `INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES ($1, $2)`,
+				ArgumentIndexes: [][]int{{0}, {1}},
+			},
+			Upsert: plannedQuery{
+				Query:           `INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES ($1, $2) ON CONFLICT ("foo_id", "bar_id") DO NOTHING`,
+				ArgumentIndexes: [][]int{{0}, {1}},
+			},
+			Delete: plannedQuery{
+				Query:           `DELETE FROM "foo_bar_relations" WHERE "foo_id" = $1 AND "bar_id" = $2`,
+				ArgumentIndexes: [][]int{{0}, {1}},
+			},
+		})
 	})
 
 	t.Run("SqliteDialect", func(t *testing.T) {
-		plan, err := buildPlan(reflect.TypeFor[relation](), SqliteDialect(), opts)
+		p, err := buildPlan(reflect.TypeFor[relation](), SqliteDialect(), opts)
 		if err != nil {
 			t.Error(err)
 		}
-		assert.Equal(t, plan.InsertUsesQueryRow, false)
-		assert.Equal(t, plan.Select.Query, `SELECT "foo_id", "bar_id" FROM "foo_bar_relations" WHERE `)
-		assert.Equal(t, plan.Select.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Select.ScanIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Insert.Query, `INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES (?, ?)`)
-		assert.Equal(t, plan.Insert.ArgumentIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Insert.ScanIndexes, nil)
-		assert.Equal(t, plan.Upsert.Query, `INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES (?, ?) ON CONFLICT ("foo_id", "bar_id") DO NOTHING`)
-		assert.Equal(t, plan.Upsert.ArgumentIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Upsert.ScanIndexes, nil)
-		assert.Equal(t, plan.Update.Query, "")
-		assert.Equal(t, plan.Update.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Update.ScanIndexes, nil)
-		assert.Equal(t, plan.Delete.Query, `DELETE FROM "foo_bar_relations" WHERE "foo_id" = ? AND "bar_id" = ?`)
-		assert.Equal(t, plan.Delete.ArgumentIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Delete.ScanIndexes, nil)
+		assert.Equal(t, onlyQueryPlans(p), plan{
+			Select: plannedQuery{
+				Query:       `SELECT "foo_id", "bar_id" FROM "foo_bar_relations" WHERE `,
+				ScanIndexes: [][]int{{0}, {1}},
+			},
+			Insert: plannedQuery{
+				Query:           `INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES (?, ?)`,
+				ArgumentIndexes: [][]int{{0}, {1}},
+			},
+			Upsert: plannedQuery{
+				Query:           `INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES (?, ?) ON CONFLICT ("foo_id", "bar_id") DO NOTHING`,
+				ArgumentIndexes: [][]int{{0}, {1}},
+			},
+			Delete: plannedQuery{
+				Query:           `DELETE FROM "foo_bar_relations" WHERE "foo_id" = ? AND "bar_id" = ?`,
+				ArgumentIndexes: [][]int{{0}, {1}},
+			},
+		})
 	})
 }
 
@@ -235,72 +277,54 @@ func TestQueryConstructionWithoutPrimaryKey(t *testing.T) {
 	}
 
 	t.Run("MariaDBDialect", func(t *testing.T) {
-		plan, err := buildPlan(reflect.TypeFor[relation](), MariaDBDialect(), opts)
+		p, err := buildPlan(reflect.TypeFor[relation](), MariaDBDialect(), opts)
 		if err != nil {
 			t.Error(err)
 		}
-		assert.Equal(t, plan.InsertUsesQueryRow, false)
-		assert.Equal(t, plan.Select.Query, "SELECT `foo_id`, `bar_id` FROM `foo_bar_relations` WHERE ")
-		assert.Equal(t, plan.Select.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Select.ScanIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Insert.Query, "INSERT INTO `foo_bar_relations` (`foo_id`, `bar_id`) VALUES (?, ?)")
-		assert.Equal(t, plan.Insert.ArgumentIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Insert.ScanIndexes, nil)
-		assert.Equal(t, plan.Upsert.Query, "")
-		assert.Equal(t, plan.Upsert.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Upsert.ScanIndexes, nil)
-		assert.Equal(t, plan.Update.Query, "")
-		assert.Equal(t, plan.Update.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Update.ScanIndexes, nil)
-		assert.Equal(t, plan.Delete.Query, "")
-		assert.Equal(t, plan.Delete.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Delete.ScanIndexes, nil)
+		assert.Equal(t, onlyQueryPlans(p), plan{
+			Select: plannedQuery{
+				Query:       "SELECT `foo_id`, `bar_id` FROM `foo_bar_relations` WHERE ",
+				ScanIndexes: [][]int{{0}, {1}},
+			},
+			Insert: plannedQuery{
+				Query:           "INSERT INTO `foo_bar_relations` (`foo_id`, `bar_id`) VALUES (?, ?)",
+				ArgumentIndexes: [][]int{{0}, {1}},
+			},
+		})
 	})
 
 	t.Run("PostgresDialect", func(t *testing.T) {
-		plan, err := buildPlan(reflect.TypeFor[relation](), PostgresDialect(), opts)
+		p, err := buildPlan(reflect.TypeFor[relation](), PostgresDialect(), opts)
 		if err != nil {
 			t.Error(err)
 		}
-		assert.Equal(t, plan.InsertUsesQueryRow, false)
-		assert.Equal(t, plan.Select.Query, `SELECT "foo_id", "bar_id" FROM "foo_bar_relations" WHERE `)
-		assert.Equal(t, plan.Select.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Select.ScanIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Insert.Query, `INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES ($1, $2)`)
-		assert.Equal(t, plan.Insert.ArgumentIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Insert.ScanIndexes, nil)
-		assert.Equal(t, plan.Upsert.Query, "")
-		assert.Equal(t, plan.Upsert.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Upsert.ScanIndexes, nil)
-		assert.Equal(t, plan.Update.Query, "")
-		assert.Equal(t, plan.Update.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Update.ScanIndexes, nil)
-		assert.Equal(t, plan.Delete.Query, "")
-		assert.Equal(t, plan.Delete.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Delete.ScanIndexes, nil)
+		assert.Equal(t, onlyQueryPlans(p), plan{
+			Select: plannedQuery{
+				Query:       `SELECT "foo_id", "bar_id" FROM "foo_bar_relations" WHERE `,
+				ScanIndexes: [][]int{{0}, {1}},
+			},
+			Insert: plannedQuery{
+				Query:           `INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES ($1, $2)`,
+				ArgumentIndexes: [][]int{{0}, {1}},
+			},
+		})
 	})
 
 	t.Run("SqliteDialect", func(t *testing.T) {
-		plan, err := buildPlan(reflect.TypeFor[relation](), SqliteDialect(), opts)
+		p, err := buildPlan(reflect.TypeFor[relation](), SqliteDialect(), opts)
 		if err != nil {
 			t.Error(err)
 		}
-		assert.Equal(t, plan.InsertUsesQueryRow, false)
-		assert.Equal(t, plan.Select.Query, `SELECT "foo_id", "bar_id" FROM "foo_bar_relations" WHERE `)
-		assert.Equal(t, plan.Select.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Select.ScanIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Insert.Query, `INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES (?, ?)`)
-		assert.Equal(t, plan.Insert.ArgumentIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Insert.ScanIndexes, nil)
-		assert.Equal(t, plan.Upsert.Query, "")
-		assert.Equal(t, plan.Upsert.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Upsert.ScanIndexes, nil)
-		assert.Equal(t, plan.Update.Query, "")
-		assert.Equal(t, plan.Update.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Update.ScanIndexes, nil)
-		assert.Equal(t, plan.Delete.Query, "")
-		assert.Equal(t, plan.Delete.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Delete.ScanIndexes, nil)
+		assert.Equal(t, onlyQueryPlans(p), plan{
+			Select: plannedQuery{
+				Query:       `SELECT "foo_id", "bar_id" FROM "foo_bar_relations" WHERE `,
+				ScanIndexes: [][]int{{0}, {1}},
+			},
+			Insert: plannedQuery{
+				Query:           `INSERT INTO "foo_bar_relations" ("foo_id", "bar_id") VALUES (?, ?)`,
+				ArgumentIndexes: [][]int{{0}, {1}},
+			},
+		})
 	})
 }
 
@@ -315,26 +339,12 @@ func TestQueryConstructionImpossible(t *testing.T) {
 
 	testWith := func(dialect Dialect) func(*testing.T) {
 		return func(t *testing.T) {
-			plan, err := buildPlan(reflect.TypeFor[unstructuredData](), dialect, opts)
+			p, err := buildPlan(reflect.TypeFor[unstructuredData](), dialect, opts)
 			if err != nil {
 				t.Error(err)
 			}
 
-			assert.Equal(t, plan.Select.Query, "")
-			assert.Equal(t, plan.Select.ArgumentIndexes, nil)
-			assert.Equal(t, plan.Select.ScanIndexes, nil)
-			assert.Equal(t, plan.Insert.Query, "")
-			assert.Equal(t, plan.Insert.ArgumentIndexes, nil)
-			assert.Equal(t, plan.Insert.ScanIndexes, nil)
-			assert.Equal(t, plan.Upsert.Query, "")
-			assert.Equal(t, plan.Upsert.ArgumentIndexes, nil)
-			assert.Equal(t, plan.Upsert.ScanIndexes, nil)
-			assert.Equal(t, plan.Update.Query, "")
-			assert.Equal(t, plan.Update.ArgumentIndexes, nil)
-			assert.Equal(t, plan.Update.ScanIndexes, nil)
-			assert.Equal(t, plan.Delete.Query, "")
-			assert.Equal(t, plan.Delete.ArgumentIndexes, nil)
-			assert.Equal(t, plan.Delete.ScanIndexes, nil)
+			assert.Equal(t, onlyQueryPlans(p), plan{})
 		}
 	}
 
@@ -356,72 +366,90 @@ func TestQueryConstructionWithMultiplePrimaryKeyColumns(t *testing.T) {
 	}
 
 	t.Run("MariaDBDialect", func(t *testing.T) {
-		plan, err := buildPlan(reflect.TypeFor[record](), MariaDBDialect(), opts)
+		p, err := buildPlan(reflect.TypeFor[record](), MariaDBDialect(), opts)
 		if err != nil {
 			t.Error(err)
 		}
-		assert.Equal(t, plan.InsertUsesQueryRow, false)
-		assert.Equal(t, plan.Select.Query, "SELECT `group_id`, `name`, `created_at` FROM `complex_records` WHERE ")
-		assert.Equal(t, plan.Select.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
-		assert.Equal(t, plan.Insert.Query, "INSERT INTO `complex_records` (`group_id`, `name`, `created_at`) VALUES (?, ?, ?)")
-		assert.Equal(t, plan.Insert.ArgumentIndexes, [][]int{{0}, {1}, {2}})
-		assert.Equal(t, plan.Insert.ScanIndexes, nil)
-		assert.Equal(t, plan.Upsert.Query, "INSERT INTO `complex_records` (`group_id`, `name`, `created_at`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE `created_at` = VALUES(`created_at`)")
-		assert.Equal(t, plan.Upsert.ArgumentIndexes, [][]int{{0}, {1}, {2}})
-		assert.Equal(t, plan.Upsert.ScanIndexes, nil)
-		assert.Equal(t, plan.Update.Query, "UPDATE `complex_records` SET `created_at` = ? WHERE `group_id` = ? AND `name` = ?")
-		assert.Equal(t, plan.Update.ArgumentIndexes, [][]int{{2}, {0}, {1}})
-		assert.Equal(t, plan.Update.ScanIndexes, nil)
-		assert.Equal(t, plan.Delete.Query, "DELETE FROM `complex_records` WHERE `group_id` = ? AND `name` = ?")
-		assert.Equal(t, plan.Delete.ArgumentIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Delete.ScanIndexes, nil)
+		assert.Equal(t, onlyQueryPlans(p), plan{
+			Select: plannedQuery{
+				Query:       "SELECT `group_id`, `name`, `created_at` FROM `complex_records` WHERE ",
+				ScanIndexes: [][]int{{0}, {1}, {2}},
+			},
+			Insert: plannedQuery{
+				Query:           "INSERT INTO `complex_records` (`group_id`, `name`, `created_at`) VALUES (?, ?, ?)",
+				ArgumentIndexes: [][]int{{0}, {1}, {2}},
+			},
+			Upsert: plannedQuery{
+				Query:           "INSERT INTO `complex_records` (`group_id`, `name`, `created_at`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE `created_at` = VALUES(`created_at`)",
+				ArgumentIndexes: [][]int{{0}, {1}, {2}},
+			},
+			Update: plannedQuery{
+				Query:           "UPDATE `complex_records` SET `created_at` = ? WHERE `group_id` = ? AND `name` = ?",
+				ArgumentIndexes: [][]int{{2}, {0}, {1}},
+			},
+			Delete: plannedQuery{
+				Query:           "DELETE FROM `complex_records` WHERE `group_id` = ? AND `name` = ?",
+				ArgumentIndexes: [][]int{{0}, {1}},
+			},
+		})
 	})
 
 	t.Run("PostgresDialect", func(t *testing.T) {
-		plan, err := buildPlan(reflect.TypeFor[record](), PostgresDialect(), opts)
+		p, err := buildPlan(reflect.TypeFor[record](), PostgresDialect(), opts)
 		if err != nil {
 			t.Error(err)
 		}
-		assert.Equal(t, plan.InsertUsesQueryRow, false)
-		assert.Equal(t, plan.Select.Query, `SELECT "group_id", "name", "created_at" FROM "complex_records" WHERE `)
-		assert.Equal(t, plan.Select.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
-		assert.Equal(t, plan.Insert.Query, `INSERT INTO "complex_records" ("group_id", "name", "created_at") VALUES ($1, $2, $3)`)
-		assert.Equal(t, plan.Insert.ArgumentIndexes, [][]int{{0}, {1}, {2}})
-		assert.Equal(t, plan.Insert.ScanIndexes, nil)
-		assert.Equal(t, plan.Upsert.Query, `INSERT INTO "complex_records" ("group_id", "name", "created_at") VALUES ($1, $2, $3) ON CONFLICT ("group_id", "name") DO UPDATE SET "created_at" = EXCLUDED."created_at"`)
-		assert.Equal(t, plan.Upsert.ArgumentIndexes, [][]int{{0}, {1}, {2}})
-		assert.Equal(t, plan.Upsert.ScanIndexes, nil)
-		assert.Equal(t, plan.Update.Query, `UPDATE "complex_records" SET "created_at" = $1 WHERE "group_id" = $2 AND "name" = $3`)
-		assert.Equal(t, plan.Update.ArgumentIndexes, [][]int{{2}, {0}, {1}})
-		assert.Equal(t, plan.Update.ScanIndexes, nil)
-		assert.Equal(t, plan.Delete.Query, `DELETE FROM "complex_records" WHERE "group_id" = $1 AND "name" = $2`)
-		assert.Equal(t, plan.Delete.ArgumentIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Delete.ScanIndexes, nil)
+		assert.Equal(t, onlyQueryPlans(p), plan{
+			Select: plannedQuery{
+				Query:       `SELECT "group_id", "name", "created_at" FROM "complex_records" WHERE `,
+				ScanIndexes: [][]int{{0}, {1}, {2}},
+			},
+			Insert: plannedQuery{
+				Query:           `INSERT INTO "complex_records" ("group_id", "name", "created_at") VALUES ($1, $2, $3)`,
+				ArgumentIndexes: [][]int{{0}, {1}, {2}},
+			},
+			Upsert: plannedQuery{
+				Query:           `INSERT INTO "complex_records" ("group_id", "name", "created_at") VALUES ($1, $2, $3) ON CONFLICT ("group_id", "name") DO UPDATE SET "created_at" = EXCLUDED."created_at"`,
+				ArgumentIndexes: [][]int{{0}, {1}, {2}},
+			},
+			Update: plannedQuery{
+				Query:           `UPDATE "complex_records" SET "created_at" = $1 WHERE "group_id" = $2 AND "name" = $3`,
+				ArgumentIndexes: [][]int{{2}, {0}, {1}},
+			},
+			Delete: plannedQuery{
+				Query:           `DELETE FROM "complex_records" WHERE "group_id" = $1 AND "name" = $2`,
+				ArgumentIndexes: [][]int{{0}, {1}},
+			},
+		})
 	})
 
 	t.Run("SqliteDialect", func(t *testing.T) {
-		plan, err := buildPlan(reflect.TypeFor[record](), SqliteDialect(), opts)
+		p, err := buildPlan(reflect.TypeFor[record](), SqliteDialect(), opts)
 		if err != nil {
 			t.Error(err)
 		}
-		assert.Equal(t, plan.InsertUsesQueryRow, false)
-		assert.Equal(t, plan.Select.Query, `SELECT "group_id", "name", "created_at" FROM "complex_records" WHERE `)
-		assert.Equal(t, plan.Select.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
-		assert.Equal(t, plan.Insert.Query, `INSERT INTO "complex_records" ("group_id", "name", "created_at") VALUES (?, ?, ?)`)
-		assert.Equal(t, plan.Insert.ArgumentIndexes, [][]int{{0}, {1}, {2}})
-		assert.Equal(t, plan.Insert.ScanIndexes, nil)
-		assert.Equal(t, plan.Upsert.Query, `INSERT INTO "complex_records" ("group_id", "name", "created_at") VALUES (?, ?, ?) ON CONFLICT ("group_id", "name") DO UPDATE SET "created_at" = EXCLUDED."created_at"`)
-		assert.Equal(t, plan.Upsert.ArgumentIndexes, [][]int{{0}, {1}, {2}})
-		assert.Equal(t, plan.Upsert.ScanIndexes, nil)
-		assert.Equal(t, plan.Update.Query, `UPDATE "complex_records" SET "created_at" = ? WHERE "group_id" = ? AND "name" = ?`)
-		assert.Equal(t, plan.Update.ArgumentIndexes, [][]int{{2}, {0}, {1}})
-		assert.Equal(t, plan.Update.ScanIndexes, nil)
-		assert.Equal(t, plan.Delete.Query, `DELETE FROM "complex_records" WHERE "group_id" = ? AND "name" = ?`)
-		assert.Equal(t, plan.Delete.ArgumentIndexes, [][]int{{0}, {1}})
-		assert.Equal(t, plan.Delete.ScanIndexes, nil)
+		assert.Equal(t, onlyQueryPlans(p), plan{
+			Select: plannedQuery{
+				Query:       `SELECT "group_id", "name", "created_at" FROM "complex_records" WHERE `,
+				ScanIndexes: [][]int{{0}, {1}, {2}},
+			},
+			Insert: plannedQuery{
+				Query:           `INSERT INTO "complex_records" ("group_id", "name", "created_at") VALUES (?, ?, ?)`,
+				ArgumentIndexes: [][]int{{0}, {1}, {2}},
+			},
+			Upsert: plannedQuery{
+				Query:           `INSERT INTO "complex_records" ("group_id", "name", "created_at") VALUES (?, ?, ?) ON CONFLICT ("group_id", "name") DO UPDATE SET "created_at" = EXCLUDED."created_at"`,
+				ArgumentIndexes: [][]int{{0}, {1}, {2}},
+			},
+			Update: plannedQuery{
+				Query:           `UPDATE "complex_records" SET "created_at" = ? WHERE "group_id" = ? AND "name" = ?`,
+				ArgumentIndexes: [][]int{{2}, {0}, {1}},
+			},
+			Delete: plannedQuery{
+				Query:           `DELETE FROM "complex_records" WHERE "group_id" = ? AND "name" = ?`,
+				ArgumentIndexes: [][]int{{0}, {1}},
+			},
+		})
 	})
 }
 
@@ -438,72 +466,84 @@ func TestQueryConstructionWithMultipleAutoColumns(t *testing.T) {
 	}
 
 	t.Run("MariaDBDialect", func(t *testing.T) {
-		plan, err := buildPlan(reflect.TypeFor[record](), MariaDBDialect(), opts)
+		p, err := buildPlan(reflect.TypeFor[record](), MariaDBDialect(), opts)
 		if err != nil {
 			t.Error(err)
 		}
-		assert.Equal(t, plan.InsertUsesQueryRow, true)
-		assert.Equal(t, plan.Select.Query, "SELECT `id`, `name`, `created_at` FROM `autogenerated_records` WHERE ")
-		assert.Equal(t, plan.Select.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
-		assert.Equal(t, plan.Insert.Query, "INSERT INTO `autogenerated_records` (`name`) VALUES (?) RETURNING `id`, `created_at`")
-		assert.Equal(t, plan.Insert.ArgumentIndexes, [][]int{{1}})
-		assert.Equal(t, plan.Insert.ScanIndexes, [][]int{{0}, {2}})
-		assert.Equal(t, plan.Upsert.Query, "")
-		assert.Equal(t, plan.Upsert.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Upsert.ScanIndexes, nil)
-		assert.Equal(t, plan.Update.Query, "UPDATE `autogenerated_records` SET `name` = ?, `created_at` = ? WHERE `id` = ?")
-		assert.Equal(t, plan.Update.ArgumentIndexes, [][]int{{1}, {2}, {0}})
-		assert.Equal(t, plan.Update.ScanIndexes, nil)
-		assert.Equal(t, plan.Delete.Query, "DELETE FROM `autogenerated_records` WHERE `id` = ?")
-		assert.Equal(t, plan.Delete.ArgumentIndexes, [][]int{{0}})
-		assert.Equal(t, plan.Delete.ScanIndexes, nil)
+		assert.Equal(t, onlyQueryPlans(p), plan{
+			InsertUsesQueryRow: true,
+			Select: plannedQuery{
+				Query:       "SELECT `id`, `name`, `created_at` FROM `autogenerated_records` WHERE ",
+				ScanIndexes: [][]int{{0}, {1}, {2}},
+			},
+			Insert: plannedQuery{
+				Query:           "INSERT INTO `autogenerated_records` (`name`) VALUES (?) RETURNING `id`, `created_at`",
+				ArgumentIndexes: [][]int{{1}},
+				ScanIndexes:     [][]int{{0}, {2}},
+			},
+			Update: plannedQuery{
+				Query:           "UPDATE `autogenerated_records` SET `name` = ?, `created_at` = ? WHERE `id` = ?",
+				ArgumentIndexes: [][]int{{1}, {2}, {0}},
+			},
+			Delete: plannedQuery{
+				Query:           "DELETE FROM `autogenerated_records` WHERE `id` = ?",
+				ArgumentIndexes: [][]int{{0}},
+			},
+		})
 	})
 
 	t.Run("PostgresDialect", func(t *testing.T) {
-		plan, err := buildPlan(reflect.TypeFor[record](), PostgresDialect(), opts)
+		p, err := buildPlan(reflect.TypeFor[record](), PostgresDialect(), opts)
 		if err != nil {
 			t.Error(err)
 		}
-		assert.Equal(t, plan.InsertUsesQueryRow, true)
-		assert.Equal(t, plan.Select.Query, `SELECT "id", "name", "created_at" FROM "autogenerated_records" WHERE `)
-		assert.Equal(t, plan.Select.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
-		assert.Equal(t, plan.Insert.Query, `INSERT INTO "autogenerated_records" ("name") VALUES ($1) RETURNING "id", "created_at"`)
-		assert.Equal(t, plan.Insert.ArgumentIndexes, [][]int{{1}})
-		assert.Equal(t, plan.Insert.ScanIndexes, [][]int{{0}, {2}})
-		assert.Equal(t, plan.Upsert.Query, "")
-		assert.Equal(t, plan.Upsert.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Upsert.ScanIndexes, nil)
-		assert.Equal(t, plan.Update.Query, `UPDATE "autogenerated_records" SET "name" = $1, "created_at" = $2 WHERE "id" = $3`)
-		assert.Equal(t, plan.Update.ArgumentIndexes, [][]int{{1}, {2}, {0}})
-		assert.Equal(t, plan.Update.ScanIndexes, nil)
-		assert.Equal(t, plan.Delete.Query, `DELETE FROM "autogenerated_records" WHERE "id" = $1`)
-		assert.Equal(t, plan.Delete.ArgumentIndexes, [][]int{{0}})
-		assert.Equal(t, plan.Delete.ScanIndexes, nil)
+		assert.Equal(t, onlyQueryPlans(p), plan{
+			InsertUsesQueryRow: true,
+			Select: plannedQuery{
+				Query:       `SELECT "id", "name", "created_at" FROM "autogenerated_records" WHERE `,
+				ScanIndexes: [][]int{{0}, {1}, {2}},
+			},
+			Insert: plannedQuery{
+				Query:           `INSERT INTO "autogenerated_records" ("name") VALUES ($1) RETURNING "id", "created_at"`,
+				ArgumentIndexes: [][]int{{1}},
+				ScanIndexes:     [][]int{{0}, {2}},
+			},
+			Update: plannedQuery{
+				Query:           `UPDATE "autogenerated_records" SET "name" = $1, "created_at" = $2 WHERE "id" = $3`,
+				ArgumentIndexes: [][]int{{1}, {2}, {0}},
+			},
+			Delete: plannedQuery{
+				Query:           `DELETE FROM "autogenerated_records" WHERE "id" = $1`,
+				ArgumentIndexes: [][]int{{0}},
+			},
+		})
 	})
 
 	t.Run("SqliteDialect", func(t *testing.T) {
-		plan, err := buildPlan(reflect.TypeFor[record](), SqliteDialect(), opts)
+		p, err := buildPlan(reflect.TypeFor[record](), SqliteDialect(), opts)
 		if err != nil {
 			t.Error(err)
 		}
-		assert.Equal(t, plan.InsertUsesQueryRow, true)
-		assert.Equal(t, plan.Select.Query, `SELECT "id", "name", "created_at" FROM "autogenerated_records" WHERE `)
-		assert.Equal(t, plan.Select.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Select.ScanIndexes, [][]int{{0}, {1}, {2}})
-		assert.Equal(t, plan.Insert.Query, `INSERT INTO "autogenerated_records" ("name") VALUES (?) RETURNING "id", "created_at"`)
-		assert.Equal(t, plan.Insert.ArgumentIndexes, [][]int{{1}})
-		assert.Equal(t, plan.Insert.ScanIndexes, [][]int{{0}, {2}})
-		assert.Equal(t, plan.Upsert.Query, "")
-		assert.Equal(t, plan.Upsert.ArgumentIndexes, nil)
-		assert.Equal(t, plan.Upsert.ScanIndexes, nil)
-		assert.Equal(t, plan.Update.Query, `UPDATE "autogenerated_records" SET "name" = ?, "created_at" = ? WHERE "id" = ?`)
-		assert.Equal(t, plan.Update.ArgumentIndexes, [][]int{{1}, {2}, {0}})
-		assert.Equal(t, plan.Update.ScanIndexes, nil)
-		assert.Equal(t, plan.Delete.Query, `DELETE FROM "autogenerated_records" WHERE "id" = ?`)
-		assert.Equal(t, plan.Delete.ArgumentIndexes, [][]int{{0}})
-		assert.Equal(t, plan.Delete.ScanIndexes, nil)
+		assert.Equal(t, onlyQueryPlans(p), plan{
+			InsertUsesQueryRow: true,
+			Select: plannedQuery{
+				Query:       `SELECT "id", "name", "created_at" FROM "autogenerated_records" WHERE `,
+				ScanIndexes: [][]int{{0}, {1}, {2}},
+			},
+			Insert: plannedQuery{
+				Query:           `INSERT INTO "autogenerated_records" ("name") VALUES (?) RETURNING "id", "created_at"`,
+				ArgumentIndexes: [][]int{{1}},
+				ScanIndexes:     [][]int{{0}, {2}},
+			},
+			Update: plannedQuery{
+				Query:           `UPDATE "autogenerated_records" SET "name" = ?, "created_at" = ? WHERE "id" = ?`,
+				ArgumentIndexes: [][]int{{1}, {2}, {0}},
+			},
+			Delete: plannedQuery{
+				Query:           `DELETE FROM "autogenerated_records" WHERE "id" = ?`,
+				ArgumentIndexes: [][]int{{0}},
+			},
+		})
 	})
 }
 
