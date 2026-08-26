@@ -7,7 +7,7 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/lib/pq v1.12.3
 	github.com/mattn/go-sqlite3 v1.14.48
-	go.xyrillian.de/gg v1.12.0
+	go.xyrillian.de/gg v1.14.0
 	go.xyrillian.de/oblast v0.11.0
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.2
