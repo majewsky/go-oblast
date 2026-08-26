@@ -100,6 +100,7 @@ func TestQueryConstructionBasic(t *testing.T) {
 	}
 
 	t.Run("MariaDBDialect", func(t *testing.T) {
+		opts.ReadOnly = false
 		p, err := buildPlan(reflect.TypeFor[record](), MariaDBDialect(), opts)
 		if err != nil {
 			t.Error(err)
@@ -123,9 +124,20 @@ func TestQueryConstructionBasic(t *testing.T) {
 				ArgumentIndexes: [][]int{{0}},
 			},
 		})
+
+		opts.ReadOnly = true
+		p2, err := buildPlan(reflect.TypeFor[record](), MariaDBDialect(), opts)
+		if err != nil {
+			t.Error(err)
+		}
+		assert.Equal(t, onlyQueryPlans(p2), plan{
+			ReadOnly: true,
+			Select:   p.Select,
+		})
 	})
 
 	t.Run("PostgresDialect", func(t *testing.T) {
+		opts.ReadOnly = false
 		p, err := buildPlan(reflect.TypeFor[record](), PostgresDialect(), opts)
 		if err != nil {
 			t.Error(err)
@@ -150,9 +162,21 @@ func TestQueryConstructionBasic(t *testing.T) {
 				ArgumentIndexes: [][]int{{0}},
 			},
 		})
+
+		opts.ReadOnly = true
+		p2, err := buildPlan(reflect.TypeFor[record](), PostgresDialect(), opts)
+		if err != nil {
+			t.Error(err)
+		}
+		assert.Equal(t, onlyQueryPlans(p2), plan{
+			InsertUsesQueryRow: true,
+			ReadOnly:           true,
+			Select:             p.Select,
+		})
 	})
 
 	t.Run("SqliteDialect", func(t *testing.T) {
+		opts.ReadOnly = false
 		p, err := buildPlan(reflect.TypeFor[record](), SqliteDialect(), opts)
 		if err != nil {
 			t.Error(err)
@@ -175,6 +199,16 @@ func TestQueryConstructionBasic(t *testing.T) {
 				Query:           `DELETE FROM "basic_records" WHERE "ID" = ?`,
 				ArgumentIndexes: [][]int{{0}},
 			},
+		})
+
+		opts.ReadOnly = true
+		p2, err := buildPlan(reflect.TypeFor[record](), SqliteDialect(), opts)
+		if err != nil {
+			t.Error(err)
+		}
+		assert.Equal(t, onlyQueryPlans(p2), plan{
+			ReadOnly: true,
+			Select:   p.Select,
 		})
 	})
 }

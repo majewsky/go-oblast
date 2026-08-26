@@ -15,6 +15,7 @@ import (
 
 // planOpts holds additional arguments to buildPlan().
 type planOpts struct {
+	ReadOnly              bool
 	StructTagKey          string // defaults to "db"
 	TableName             string
 	PrimaryKeyColumnNames []string
@@ -100,6 +101,10 @@ type plan struct {
 	Upsert plannedQuery
 	Update plannedQuery
 	Delete plannedQuery
+
+	// Whether Insert/Upsert/Update/Delete query planning was inhibited by the ReadOnly option.
+	// This information is preserved in order to render more useful error messages.
+	ReadOnly bool
 }
 
 // fieldInfo appears in type plan.
@@ -130,6 +135,7 @@ func buildPlan(t reflect.Type, dialect Dialect, opts planOpts) (plan, error) {
 		TableName:             opts.TableName,
 		PrimaryKeyColumnNames: opts.PrimaryKeyColumnNames,
 		IndexByColumnName:     make(map[string][]int),
+		ReadOnly:              opts.ReadOnly,
 	}
 
 	var (
@@ -272,10 +278,12 @@ func buildPlan(t reflect.Type, dialect Dialect, opts planOpts) (plan, error) {
 
 	// prepare query strings
 	p.Select = p.buildSelectQueryIfPossible(dialect)
-	p.Insert = p.buildInsertQueryIfPossible(dialect, false)
-	p.Upsert = p.buildInsertQueryIfPossible(dialect, true)
-	p.Update = p.buildUpdateQueryIfPossible(dialect)
-	p.Delete = p.buildDeleteQueryIfPossible(dialect)
+	if !opts.ReadOnly {
+		p.Insert = p.buildInsertQueryIfPossible(dialect, false)
+		p.Upsert = p.buildInsertQueryIfPossible(dialect, true)
+		p.Update = p.buildUpdateQueryIfPossible(dialect)
+		p.Delete = p.buildDeleteQueryIfPossible(dialect)
+	}
 
 	return p, nil
 }
