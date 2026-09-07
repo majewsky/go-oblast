@@ -51,17 +51,29 @@ func TestPlanFieldTraversal(t *testing.T) {
 		private1 bool `db:"private1"` //nolint:unused
 		Ignored  any  `db:"-"`
 		Timestamps
-		yetMoreTimestamps
+		*yetMoreTimestamps
+		MoreText struct {
+			Description string
+		}
+		YetMoreText struct {
+			Payload string
+		} `db:"-"`
+		OpaqueText struct {
+			ShortMessage string
+			LongMessage  string
+		} `db:"OpaqueText"`
 	}
 
 	// check that the plan for Log:
-	// 1. has no IndexByColumnName entries for marker types
-	// 2. uses the field name as a column name for "Message"
-	// 3. ignores "private1" because it cannot be written through reflection
-	// 4. ignores "Ignored" because its column name is "-"
-	// 5. traverses into "Timestamps" and includes its fields as well
-	// 6. traverses into "yetMoreTimestamps" as well (despite the extra pointer and the type being private)
-	// 7. recognizes "id" as an autofilled column
+	// 1. uses the field name as a column name for "Message"
+	// 2. ignores "private1" because it cannot be written through reflection
+	// 3. ignores "Ignored" because its column name is "-"
+	// 4. traverses into "Timestamps" and includes its fields as well
+	// 5. traverses into "yetMoreTimestamps" as well (despite the extra pointer and the type being private)
+	// 6. traverses into "MoreText" and includes its fields as well
+	// 7. does not traverse into "YetMoreText" and does not include its fields because of `db:"-"`
+	// 8. does not traverse into "OpaqueText" because the struct is mapped as a whole
+	// 9. recognizes "id" as an autofilled column
 	p, err := buildPlan(reflect.TypeFor[Log](), PostgresDialect(), planOpts{
 		StructTagKey:          "db",
 		TableName:             "log_entries",
@@ -73,17 +85,23 @@ func TestPlanFieldTraversal(t *testing.T) {
 	assert.Equal(t, onlyAnalysisResult(p), plan{
 		TypeName:              "Log",
 		TableName:             "log_entries",
-		AllColumnNames:        []string{"id", "Message", "created_at", "updated_at", "deleted_at"},
+		AllColumnNames:        []string{"id", "Message", "created_at", "updated_at", "deleted_at", "Description", "OpaqueText"},
 		PrimaryKeyColumnNames: []string{"id"},
 		AutoColumnNames:       []string{"id"},
 		IndexByColumnName: map[string][]int{
-			"id":         {0},
-			"Message":    {1},
-			"created_at": {4, 0},
-			"updated_at": {4, 1},
-			"deleted_at": {5, 0},
+			"id":          {0},
+			"Message":     {1},
+			"created_at":  {4, 0},
+			"updated_at":  {4, 1},
+			"deleted_at":  {5, 0},
+			"Description": {6, 0},
+			"OpaqueText":  {8},
 		},
 		InsertUsesQueryRow: true,
+		TransparentPointerStructFields: []fieldInfo{{
+			Name:  "yetMoreTimestamps",
+			Index: []int{5},
+		}},
 	})
 }
 
