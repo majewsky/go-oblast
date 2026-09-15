@@ -15,13 +15,6 @@ import (
 	. "go.xyrillian.de/gg/option"
 )
 
-// NOTE: I had the idea to add types Tuple2[A, B], Tuple3[A, B, C] and so on for ad-hoc selections without declaring a new record type each time.
-//       I'm not fully sold on whether that actually makes the API more ergonomic. But if this desired, we can do so in a backwards-compatible way,
-//       by having those types implement interface { sealed(seal); cardinality() int; splatPointers([]any) }.
-//       When buildPlan() sees this interface being implemented, it can skip all the work, generate no queries at all, and instead instruct type selection
-//       to allocate scanArgs with length t.cardinality() and use t.splatPointers(scanArgs) to have Tuple put pointers to its fields in there, thus bypassing reflection.
-//       Since this does not involve picking a dialect at all, we could also have the Select() method on the Tuple type itself.
-
 // Select executes the provided SQL query and fills an instance of the record type R for each row in the result set,
 // according to the column names reported by the database as part of the result set.
 //
@@ -59,6 +52,15 @@ func startSelectQuery(ctx context.Context, db gsql.Handle, plan plan, query stri
 	rows, err := db.GSQLQuery(ctx, query, args)
 	if err != nil {
 		return selection{Err: fmt.Errorf("during Query(): %w", err)}
+	}
+
+	// fast exit for TupleSelect()
+	if len(plan.IndexByColumnName) == 0 {
+		return selection{
+			Rows:    rows,
+			Slots:   make([]any, len(plan.StaticIndexes)),
+			Indexes: plan.StaticIndexes,
+		}
 	}
 
 	columnNames, err := rows.Columns()
@@ -252,7 +254,67 @@ func (q PreparedSelectQuery[R]) SelectOneOrNone(ctx context.Context, db gsql.Han
 	return noRowsToNone(q.SelectOne(ctx, db, args...))
 }
 
-///////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+// tuple selections
+
+// TupleSelect executes the provided SQL query and fills an instance of the record type R for each row in the result set.
+// Unlike [Store.Select], struct fields are matched to the result columns not based on names or struct tags, but purely based on order:
+// Values from the first column are stored in the first result field, and so on.
+//
+// This is usually more convenient when defining an ad-hoc record type for a single query. Compare:
+//
+//	const query = `SELECT given_name, COUNT(*) AS user_count FROM users WHERE family_name = $1 GROUP BY first_name`
+//	type record struct {
+//		GivenName string `db:"given_name"`
+//		UserCount uint64 `db:"user_count"`
+//	}
+//	err = oblast.MustNewStore[record](config.DB.Dialect).Select(ctx, db, query, lastName).Foreach(func(r record) error {
+//		return doSomethingWith(r.GivenName, r.UserCount)
+//	})
+//
+// With:
+//
+//	const query = `SELECT given_name, COUNT(*) FROM users WHERE family_name = $1 GROUP BY first_name`
+//	type record struct {
+//		GivenName string
+//		UserCount uint64
+//	}
+//	err = oblast.TupleSelect[record](ctx, db, query, lastName).Foreach(func(r record) error {
+//		return doSomethingWith(r.GivenName, r.UserCount)
+//	})
+//
+// Do not use this function with queries of the form `SELECT * FROM ...`,
+// where the order of columns is not well-defined and may vary between otherwise compatible DB schemas.
+func TupleSelect[R any](ctx context.Context, db gsql.Handle, query string, args ...any) Selection[R] {
+	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
+	//       Any expression that does not depend on type R should be factored out into a reusable function.
+
+	plan := getOrBuildTuplePlan(reflect.TypeFor[R]())
+	return Selection[R]{startSelectQuery(ctx, db, plan, query, args...)}
+}
+
+// TupleSelectOne executes the provided SQL query and fills an instance of the record type R if there is exactly one row in the result set,
+// following the same behavior as [TupleSelect] for mapping a row into a record.
+//
+// If there are no rows in the result set, [sql.ErrNoRows] is returned.
+func TupleSelectOne[R any](ctx context.Context, db gsql.Handle, query string, args ...any) (R, error) {
+	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
+	//       Any expression that does not depend on type R should be factored out into a reusable function.
+
+	return TupleSelect[R](ctx, db, query, args...).First()
+}
+
+// TupleSelectOneOrNone is like [TupleSelectOne], but returns [None] instead of [sql.ErrNoRows].
+//
+// [None]: https://pkg.go.dev/go.xyrillian.de/gg/option#None
+func TupleSelectOneOrNone[R any](ctx context.Context, db gsql.Handle, query string, args ...any) (Option[R], error) {
+	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
+	//       Any expression that does not depend on type R should be factored out into a reusable function.
+
+	return TupleSelect[R](ctx, db, query, args...).FirstOrNone()
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // non-record selections
 
 // Select executes the provided SQL query that returns rows that each contain exactly one value.

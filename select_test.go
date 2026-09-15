@@ -160,6 +160,39 @@ func TestSelectReturningSomeRecords(t *testing.T) {
 		name := must.Return(oblast.SelectOneOrNone[string](ctx, db, `SELECT name FROM basic_records WHERE id < ?`, 3))(t)
 		assert.Equal(t, name, Some("foo"))
 	})
+
+	type tupleRecord struct {
+		ID   int64
+		Name string
+	}
+	commonSetupForTupleSelect := func() {
+		md.ForQuery(`SELECT id, name FROM basic_records WHERE id < ?`).
+			ExpectQueryWithArgs(3).
+			AndReturnColumns("id", "name").
+			WithRow(1, "foo").
+			WithRow(2, "bar")
+	}
+
+	t.Run("using TupleSelect", func(t *testing.T) {
+		commonSetupForTupleSelect()
+		records := must.Return(oblast.TupleSelect[tupleRecord](ctx, db, `SELECT id, name FROM basic_records WHERE id < ?`, 3).Collect())(t)
+		assert.Equal(t, records, []tupleRecord{
+			{1, "foo"},
+			{2, "bar"},
+		})
+	})
+
+	t.Run("using TupleSelectOne", func(t *testing.T) {
+		commonSetupForTupleSelect()
+		record := must.Return(oblast.TupleSelectOne[tupleRecord](ctx, db, `SELECT id, name FROM basic_records WHERE id < ?`, 3))(t)
+		assert.Equal(t, record, tupleRecord{1, "foo"})
+	})
+
+	t.Run("using TupleSelectOneOrNone", func(t *testing.T) {
+		commonSetupForTupleSelect()
+		record := must.Return(oblast.TupleSelectOneOrNone[tupleRecord](ctx, db, `SELECT id, name FROM basic_records WHERE id < ?`, 3))(t)
+		assert.Equal(t, record, Some(tupleRecord{1, "foo"}))
+	})
 }
 
 func TestSelectReturningNoRecords(t *testing.T) {
@@ -274,6 +307,34 @@ func TestSelectReturningNoRecords(t *testing.T) {
 		commonSetupForValueSelect()
 		name := must.Return(oblast.SelectOneOrNone[string](ctx, db, `SELECT name FROM basic_records WHERE id < ?`, 3))(t)
 		assert.Equal(t, name, None[string]())
+	})
+
+	type tupleRecord struct {
+		ID   int64
+		Name string
+	}
+	commonSetupForTupleSelect := func() {
+		md.ForQuery(`SELECT id, name FROM basic_records WHERE id < ?`).
+			ExpectQueryWithArgs(3).
+			AndReturnColumns("id", "name")
+	}
+
+	t.Run("using TupleSelect", func(t *testing.T) {
+		commonSetupForTupleSelect()
+		records := must.Return(oblast.TupleSelect[tupleRecord](ctx, db, `SELECT id, name FROM basic_records WHERE id < ?`, 3).Collect())(t)
+		assert.Equal(t, records, nil)
+	})
+
+	t.Run("using TupleSelectOne", func(t *testing.T) {
+		commonSetupForTupleSelect()
+		_, err := oblast.TupleSelectOne[tupleRecord](ctx, db, `SELECT id, name FROM basic_records WHERE id < ?`, 3)
+		assert.ErrEqual(t, err, sql.ErrNoRows.Error())
+	})
+
+	t.Run("using TupleSelectOneOrNone", func(t *testing.T) {
+		commonSetupForTupleSelect()
+		record := must.Return(oblast.TupleSelectOneOrNone[tupleRecord](ctx, db, `SELECT id, name FROM basic_records WHERE id < ?`, 3))(t)
+		assert.Equal(t, record, None[tupleRecord]())
 	})
 }
 
@@ -546,6 +607,21 @@ func TestSelectCapturingQueryError(t *testing.T) {
 		_, err := oblast.SelectOne[string](ctx, db, `SELECT name FROM basic_records WHERE id < ?`, 3)
 		assert.ErrEqual(t, err, "unexpected query: SELECT name FROM basic_records WHERE id < ?")
 	})
+
+	type tupleRecord struct {
+		ID   int64
+		Name string
+	}
+
+	t.Run("using oblast.TupleSelect", func(t *testing.T) {
+		_, err := oblast.TupleSelect[tupleRecord](ctx, db, `SELECT id, name FROM basic_records WHERE id < ?`, 3).Collect()
+		assert.ErrEqual(t, err, "during Query(): unexpected query: SELECT id, name FROM basic_records WHERE id < ?")
+	})
+
+	t.Run("using oblast.TupleSelectOne", func(t *testing.T) {
+		_, err := oblast.TupleSelectOne[tupleRecord](ctx, db, `SELECT id, name FROM basic_records WHERE id < ?`, 3)
+		assert.ErrEqual(t, err, "during Query(): unexpected query: SELECT id, name FROM basic_records WHERE id < ?")
+	})
 }
 
 func TestSelectCapturingCloseError(t *testing.T) {
@@ -607,6 +683,23 @@ func TestSelectCapturingCloseError(t *testing.T) {
 		commonSetup(`SELECT "id", "name" FROM "basic_records" WHERE id < ?`)
 		query := store.MustPrepareSelectQueryWhere(`id < ?`)
 		_, err := query.SelectOne(ctx, db, 3)
+		assert.ErrEqual(t, err, "datacenter on fire")
+	})
+
+	type tupleRecord struct {
+		ID   int64
+		Name string
+	}
+
+	t.Run("using oblast.TupleSelect", func(t *testing.T) {
+		commonSetup(`SELECT id, name FROM basic_records WHERE id < ?`)
+		_, err := oblast.TupleSelect[tupleRecord](ctx, db, `SELECT id, name FROM basic_records WHERE id < ?`, 3).Collect()
+		assert.ErrEqual(t, err, "datacenter on fire")
+	})
+
+	t.Run("using oblast.TupleSelectOne", func(t *testing.T) {
+		commonSetup(`SELECT id, name FROM basic_records WHERE id < ?`)
+		_, err := oblast.TupleSelectOne[tupleRecord](ctx, db, `SELECT id, name FROM basic_records WHERE id < ?`, 3)
 		assert.ErrEqual(t, err, "datacenter on fire")
 	})
 

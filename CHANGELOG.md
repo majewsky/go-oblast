@@ -3,6 +3,16 @@ SPDX-FileCopyrightText: 2026 Stefan Majewsky <majewsky@gmx.net>
 SPDX-License-Identifier: Apache-2.0
 -->
 
+# v0.16.0 (TBD)
+
+API changes:
+
+- Add `oblast.{TupleSelect,TupleSelectOne,TupleSelectOneOrNone}` to help with selecting rows containing joined or aggregated columns.
+
+Changes:
+
+- Fix plan caching not considering the ReadOnly field correctly.
+
 # v0.15.0 (2026-09-15)
 
 API changes:
