@@ -174,6 +174,46 @@ func BenchmarkORMSelectMany(b *testing.B) {
 	}
 }
 
+func BenchmarkORMSelectManyValues(b *testing.B) {
+	db, _ := makeSqliteTestDB(b, totalRecordCountForSelect)
+
+	// test with different sizes of resultsets (N=1 is an OLTP-like workload,
+	// then the larger N lean more towards the OLAP side of things)
+	for _, batchSize := range batchSizesForSelect {
+		b.Run("N="+strconv.Itoa(batchSize), func(b *testing.B) {
+			// prepare the functions that will be benched
+			query := `SELECT message FROM entries WHERE id < ` + strconv.Itoa(batchSize)
+			selectWithOblast := func(b *testing.B) {
+				messages := must.Return(oblast.Select[string](noctx, db, query).Collect())(b)
+				assert.Equal(b, len(messages), batchSize)
+			}
+			selectWithSqlite := func(b *testing.B) {
+				var count int
+				rows := must.Return(db.Query(query))(b) //nolint:rowserrcheck // false positive
+				var message string
+				for rows.Next() {
+					must.Succeed(b, rows.Scan(&message))
+					count++
+				}
+				must.Succeed(b, rows.Close())
+				assert.Equal(b, count, batchSize)
+			}
+
+			// run actual benchmark
+			b.Run("via Oblast", func(b *testing.B) {
+				for b.Loop() {
+					selectWithOblast(b)
+				}
+			})
+			b.Run("just SQLite", func(b *testing.B) {
+				for b.Loop() {
+					selectWithSqlite(b)
+				}
+			})
+		})
+	}
+}
+
 func BenchmarkORMSelectOne(b *testing.B) {
 	db, dsn := makeSqliteTestDB(b, totalRecordCountForSelect)
 
@@ -249,6 +289,37 @@ func BenchmarkORMSelectOne(b *testing.B) {
 	b.Run("via Oblast using SelectOneWhere", func(b *testing.B) {
 		for b.Loop() {
 			selectWithOblastWhere(b)
+		}
+	})
+	b.Run("just SQLite", func(b *testing.B) {
+		for b.Loop() {
+			selectWithSqlite(b)
+		}
+	})
+}
+
+func BenchmarkORMSelectOneValue(b *testing.B) {
+	db, _ := makeSqliteTestDB(b, totalRecordCountForSelect)
+
+	// grab a "random" record from the DB, not just the first or the last
+	recordID := min(totalRecordCountForSelect*2/3, totalRecordCountForSelect)
+
+	// prepare the functions that will be benched
+	query := `SELECT message FROM entries WHERE id = ` + strconv.Itoa(recordID)
+	selectWithOblast := func(b *testing.B) {
+		message := must.Return(oblast.SelectOne[string](noctx, db, query))(b)
+		assert.Equal(b, len(message), 71)
+	}
+	selectWithSqlite := func(b *testing.B) {
+		var message string
+		must.Succeed(b, db.QueryRow(query).Scan(&message))
+		assert.Equal(b, len(message), 71)
+	}
+
+	// run actual benchmark
+	b.Run("via Oblast", func(b *testing.B) {
+		for b.Loop() {
+			selectWithOblast(b)
 		}
 	})
 	b.Run("just SQLite", func(b *testing.B) {

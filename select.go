@@ -15,6 +15,13 @@ import (
 	. "go.xyrillian.de/gg/option"
 )
 
+// NOTE: I had the idea to add types Tuple2[A, B], Tuple3[A, B, C] and so on for ad-hoc selections without declaring a new record type each time.
+//       I'm not fully sold on whether that actually makes the API more ergonomic. But if this desired, we can do so in a backwards-compatible way,
+//       by having those types implement interface { sealed(seal); cardinality() int; splatPointers([]any) }.
+//       When buildPlan() sees this interface being implemented, it can skip all the work, generate no queries at all, and instead instruct type selection
+//       to allocate scanArgs with length t.cardinality() and use t.splatPointers(scanArgs) to have Tuple put pointers to its fields in there, thus bypassing reflection.
+//       Since this does not involve picking a dialect at all, we could also have the Select() method on the Tuple type itself.
+
 // Select executes the provided SQL query and fills an instance of the record type R for each row in the result set,
 // according to the column names reported by the database as part of the result set.
 //
@@ -245,10 +252,63 @@ func (q PreparedSelectQuery[R]) SelectOneOrNone(ctx context.Context, db gsql.Han
 	return noRowsToNone(q.SelectOne(ctx, db, args...))
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////
+// non-record selections
+
+// Select executes the provided SQL query that returns rows that each contain exactly one value.
+func Select[T any](ctx context.Context, db gsql.Handle, query string, args ...any) Selection[T] {
+	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
+	//       Any expression that does not depend on type R should be factored out into a reusable function.
+
+	return Selection[T]{startSelectValueQuery(ctx, db, query, args)}
+}
+
+func startSelectValueQuery(ctx context.Context, db gsql.Handle, query string, args []any) selection {
+	rows, err := db.GSQLQuery(ctx, query, args)
+	if err != nil {
+		return selection{Err: fmt.Errorf("during Query(): %w", err)}
+	}
+	return selection{Rows: rows} // all other members are nil because this is a non-record selection
+}
+
+// SelectOne executes the provided SQL query that returns exactly one row containing exactly one value.
+//
+// This is the same as declaring a value of type T and then saying db.QueryRow(query, args...).Scan(&value)
+// or whatever the equivalent for the DB handle in question is.
+//
+// If there are no rows in the result set, [sql.ErrNoRows] is returned.
+func SelectOne[T any](ctx context.Context, db gsql.Handle, query string, args ...any) (T, error) {
+	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
+	//       Any expression that does not depend on type R should be factored out into a reusable function.
+
+	var result T
+	err := selectOneValue(ctx, db, &result, query, args)
+	return result, err
+}
+
+// SelectOneOrNone is like SelectOne, but returns [None] instead of [sql.ErrNoRows].
+//
+// [None]: https://pkg.go.dev/go.xyrillian.de/gg/option#None
+func SelectOneOrNone[T any](ctx context.Context, db gsql.Handle, query string, args ...any) (Option[T], error) {
+	// NOTE: This function body should be as short as possible to reduce the binary size after monomorphization.
+	//       Any expression that does not depend on type R should be factored out into a reusable function.
+
+	return noRowsToNone(SelectOne[T](ctx, db, query, args...))
+}
+
+func selectOneValue(ctx context.Context, db gsql.Handle, target any, query string, args []any) error {
+	stmt, err := db.GSQLPrepare(ctx, query, false)
+	if err != nil {
+		return err
+	}
+	err = stmt.QueryRow(ctx, args, []any{target})
+	return errext.WithCleanup(err, "Stmt.Close", stmt.Close())
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // type Selection
 
-// Selection provides access to the result set from a [Store.Select], [Store.SelectWhere] or [PreparedSelectQuery.Select] call.
+// Selection provides access to the result set from a [Select], [Store.Select], [Store.SelectWhere] or [PreparedSelectQuery.Select] call.
 //
 // Instances of this type are not meant to be held in variables.
 // Instead, chain one of its method calls directly after the Select or SelectWhere call to choose how to process the result set.
@@ -261,11 +321,19 @@ type Selection[R any] struct {
 type selection struct {
 	// from startSelectQuery()
 	Rows  gsql.Rows
-	Slots []any // NOTE: len(s.Slots) == len(s.Indexes)
+	Slots []any // NOTE: len(s.Slots) == len(s.Indexes); will be empty for non-record selections (created by Select[T])
 	Err   error // NOTE: if this field is set, all other fields will be unset
-	// from plan
+	// from plan; will all be empty for non-record selections (created by Select[T])
 	Indexes                        [][]int
 	TransparentPointerStructFields []fieldInfo
+}
+
+func (s selection) collectRowOrValue(pointerToTarget any) error {
+	if len(s.Slots) > 0 {
+		return s.collectRow(reflect.ValueOf(pointerToTarget).Elem(), s.Slots)
+	} else {
+		return s.collectValue(pointerToTarget)
+	}
 }
 
 func (s selection) collectRow(v reflect.Value, slots []any) error {
@@ -277,6 +345,14 @@ func (s selection) collectRow(v reflect.Value, slots []any) error {
 		slots[idx] = v.FieldByIndex(index).Addr().Interface()
 	}
 	err := s.Rows.Scan(slots...)
+	if err != nil {
+		return errext.WithCleanup(err, "Rows.Close", s.Rows.Close())
+	}
+	return nil
+}
+
+func (s selection) collectValue(pointerToTarget any) error {
+	err := s.Rows.Scan(pointerToTarget)
 	if err != nil {
 		return errext.WithCleanup(err, "Rows.Close", s.Rows.Close())
 	}
@@ -297,7 +373,7 @@ func (s Selection[R]) Collect() ([]R, error) {
 	for s.Rows.Next() {
 		var target *R
 		result, target = growRecordSlice(result)
-		err := s.collectRow(reflect.ValueOf(target).Elem(), s.Slots)
+		err := s.collectRowOrValue(target)
 		if err != nil {
 			return nil, err
 		}
@@ -346,12 +422,25 @@ func (s Selection[R]) Foreach(action func(R) error) error {
 
 	// NOTE: `record` will escape to the heap because of the reflect.ValueOf() call.
 	// By reusing the same `record` throughout the loop, this function will only allocate at most one instance of R on the heap.
-	var record R
-	v := reflect.ValueOf(&record).Elem()
+	var (
+		record   R
+		v        reflect.Value
+		isRecord = len(s.Slots) > 0
+	)
+	if isRecord {
+		v = reflect.ValueOf(&record).Elem()
+	}
 	for s.Rows.Next() {
-		var zero R
+		var (
+			zero R
+			err  error
+		)
 		record = zero
-		err := s.collectRow(v, s.Slots)
+		if isRecord {
+			err = s.collectRow(v, s.Slots)
+		} else {
+			err = s.collectValue(&record)
+		}
 		if err != nil {
 			return err
 		}
@@ -377,7 +466,7 @@ func (s Selection[R]) First() (R, error) {
 	if !s.Rows.Next() {
 		return record, sql.ErrNoRows
 	}
-	err := s.collectRow(reflect.ValueOf(&record).Elem(), s.Slots)
+	err := s.collectRowOrValue(&record)
 	if err == nil {
 		err = s.Rows.Close()
 	}
@@ -396,7 +485,7 @@ func (s Selection[R]) FirstOrNone() (Option[R], error) {
 		return None[R](), nil
 	}
 	var record R
-	err := s.collectRow(reflect.ValueOf(&record).Elem(), s.Slots)
+	err := s.collectRowOrValue(&record)
 	if err == nil {
 		err = s.Rows.Close()
 	}

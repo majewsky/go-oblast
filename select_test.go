@@ -134,6 +134,32 @@ func TestSelectReturningSomeRecords(t *testing.T) {
 		record := must.Return(query.SelectOneOrNone(ctx, db, 3))(t)
 		assert.Equal(t, record, Some(basicRecord{1, "ffffffoo"}))
 	})
+
+	commonSetupForValueSelect := func() {
+		md.ForQuery(`SELECT name FROM basic_records WHERE id < ?`).
+			ExpectQueryWithArgs(3).
+			AndReturnColumns("name").
+			WithRow("foo").
+			WithRow("bar")
+	}
+
+	t.Run("using oblast.Select", func(t *testing.T) {
+		commonSetupForValueSelect()
+		names := must.Return(oblast.Select[string](ctx, db, `SELECT name FROM basic_records WHERE id < ?`, 3).Collect())(t)
+		assert.Equal(t, names, []string{"foo", "bar"})
+	})
+
+	t.Run("using oblast.SelectOne", func(t *testing.T) {
+		commonSetupForValueSelect()
+		name := must.Return(oblast.SelectOne[string](ctx, db, `SELECT name FROM basic_records WHERE id < ?`, 3))(t)
+		assert.Equal(t, name, "foo")
+	})
+
+	t.Run("using oblast.SelectOneOrNone", func(t *testing.T) {
+		commonSetupForValueSelect()
+		name := must.Return(oblast.SelectOneOrNone[string](ctx, db, `SELECT name FROM basic_records WHERE id < ?`, 3))(t)
+		assert.Equal(t, name, Some("foo"))
+	})
 }
 
 func TestSelectReturningNoRecords(t *testing.T) {
@@ -224,6 +250,30 @@ func TestSelectReturningNoRecords(t *testing.T) {
 		query := store.MustPrepareSelectQueryWhere(`id < ?`)
 		record := must.Return(query.SelectOneOrNone(ctx, db, 3))(t)
 		assert.Equal(t, record, None[basicRecord]())
+	})
+
+	commonSetupForValueSelect := func() {
+		md.ForQuery(`SELECT name FROM basic_records WHERE id < ?`).
+			ExpectQueryWithArgs(3).
+			AndReturnColumns("name")
+	}
+
+	t.Run("using oblast.Select", func(t *testing.T) {
+		commonSetupForValueSelect()
+		names := must.Return(oblast.Select[string](ctx, db, `SELECT name FROM basic_records WHERE id < ?`, 3).Collect())(t)
+		assert.Equal(t, names, nil)
+	})
+
+	t.Run("using oblast.SelectOne", func(t *testing.T) {
+		commonSetupForValueSelect()
+		_, err := oblast.SelectOne[string](ctx, db, `SELECT name FROM basic_records WHERE id < ?`, 3)
+		assert.ErrEqual(t, err, sql.ErrNoRows.Error())
+	})
+
+	t.Run("using oblast.SelectOneOrNone", func(t *testing.T) {
+		commonSetupForValueSelect()
+		name := must.Return(oblast.SelectOneOrNone[string](ctx, db, `SELECT name FROM basic_records WHERE id < ?`, 3))(t)
+		assert.Equal(t, name, None[string]())
 	})
 }
 
@@ -486,6 +536,16 @@ func TestSelectCapturingQueryError(t *testing.T) {
 		_, err := query.SelectOne(ctx, db, 3)
 		assert.ErrEqual(t, err, `unexpected query: SELECT "id", "name" FROM "basic_records" WHERE id < ?`)
 	})
+
+	t.Run("using oblast.Select", func(t *testing.T) {
+		_, err := oblast.Select[string](ctx, db, `SELECT name FROM basic_records WHERE id < ?`, 3).Collect()
+		assert.ErrEqual(t, err, "during Query(): unexpected query: SELECT name FROM basic_records WHERE id < ?")
+	})
+
+	t.Run("using oblast.SelectOne", func(t *testing.T) {
+		_, err := oblast.SelectOne[string](ctx, db, `SELECT name FROM basic_records WHERE id < ?`, 3)
+		assert.ErrEqual(t, err, "unexpected query: SELECT name FROM basic_records WHERE id < ?")
+	})
 }
 
 func TestSelectCapturingCloseError(t *testing.T) {
@@ -547,6 +607,27 @@ func TestSelectCapturingCloseError(t *testing.T) {
 		commonSetup(`SELECT "id", "name" FROM "basic_records" WHERE id < ?`)
 		query := store.MustPrepareSelectQueryWhere(`id < ?`)
 		_, err := query.SelectOne(ctx, db, 3)
+		assert.ErrEqual(t, err, "datacenter on fire")
+	})
+
+	commonSetup = func(query string) {
+		md.ForQuery(query).
+			ExpectQueryWithArgs(3).
+			AndReturnColumns("name").
+			WithRow("foo").
+			WithRow("bar").
+			AndCloseFailsWith(errors.New("datacenter on fire"))
+	}
+
+	t.Run("using oblast.Select", func(t *testing.T) {
+		commonSetup(`SELECT name FROM basic_records WHERE id < ?`)
+		_, err := oblast.Select[string](ctx, db, `SELECT name FROM basic_records WHERE id < ?`, 3).Collect()
+		assert.ErrEqual(t, err, "datacenter on fire")
+	})
+
+	t.Run("using oblast.SelectOne", func(t *testing.T) {
+		commonSetup(`SELECT name FROM basic_records WHERE id < ?`)
+		_, err := oblast.SelectOne[string](ctx, db, `SELECT name FROM basic_records WHERE id < ?`, 3)
 		assert.ErrEqual(t, err, "datacenter on fire")
 	})
 }

@@ -3,6 +3,12 @@ SPDX-FileCopyrightText: 2026 Stefan Majewsky <majewsky@gmx.net>
 SPDX-License-Identifier: Apache-2.0
 -->
 
+# v0.15.0 (TBD)
+
+API changes:
+
+- Add `oblast.{Select,SelectOne,SelectOneOrNone}` to help with selecting rows containing exactly one value.
+
 # v0.14.0 (2026-09-07)
 
 API changes:
