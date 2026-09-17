@@ -3,6 +3,12 @@ SPDX-FileCopyrightText: 2026 Stefan Majewsky <majewsky@gmx.net>
 SPDX-License-Identifier: Apache-2.0
 -->
 
+# v0.17.0 (TBD)
+
+API changes:
+
+- Everything except `type RuntimeIndex` becomes a synonym for the identical types in the new package `go.xyrillian.de/gg/oblast` within `gg@v1.16.0`.
+
 # v0.16.0 (2026-09-15)
 
 API changes:
