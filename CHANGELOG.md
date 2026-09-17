@@ -3,7 +3,7 @@ SPDX-FileCopyrightText: 2026 Stefan Majewsky <majewsky@gmx.net>
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# v0.17.0 (TBD)
+# v0.17.0 (2026-09-17)
 
 API changes:
 
