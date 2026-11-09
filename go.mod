@@ -1,5 +1,5 @@
 module go.xyrillian.de/oblast
 
-go 1.26
+go 1.27
 
-require go.xyrillian.de/gg v1.16.0
+require go.xyrillian.de/gg v1.21.0

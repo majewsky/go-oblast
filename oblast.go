@@ -79,3 +79,11 @@ func TupleSelect[R any](ctx context.Context, db gsql.Handle, query string, args 
 func TupleSelectOne[R any](ctx context.Context, db gsql.Handle, query string, args ...any) (R, error) {
 	return gg_oblast.TupleSelectOne[R](ctx, db, query, args...)
 }
+
+// RuntimeIndex has moved to gg/oblast (follow the link below).
+type RuntimeIndex[R any, K comparable] = gg_oblast.RuntimeIndex[R, K]
+
+// NewRuntimeIndex has moved to gg/oblast (follow the link below).
+func NewRuntimeIndex[R any, K comparable](f func(R) K) RuntimeIndex[R, K] {
+	return gg_oblast.NewRuntimeIndex(f)
+}

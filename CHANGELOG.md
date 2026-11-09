@@ -3,6 +3,15 @@ SPDX-FileCopyrightText: 2026 Stefan Majewsky <majewsky@gmx.net>
 SPDX-License-Identifier: Apache-2.0
 -->
 
+# v0.18.0 (TBD)
+
+API changes:
+
+- The remaining non-aliased symbols, `type RuntimeIndex` and `func NewRuntimeIndex`, become synonyms for the identical symbols in `go.xyrillian.de/gg/oblast` within `gg@v1.21.0`.
+
+Since this module has been fully superseded by `go.xyrillian.de/gg/oblast`, this is the last release of this module.
+In a fitting coincidence, on its 18th "birthday", Oblast comes of age.
+
 # v0.17.0 (2026-09-17)
 
 API changes:
